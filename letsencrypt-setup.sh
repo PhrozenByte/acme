@@ -35,6 +35,9 @@ Alias /.well-known/acme-challenge/ /var/www/html/.well-known/acme-challenge/
 <Directory "/var/www/html/.well-known/acme-challenge/">
     Options None
     AllowOverride None
+
+    ForceType text/plain
+    RedirectMatch 404 "^(?!/\.well-known/acme-challenge/[\w-]{43}$)"
 </Directory>
 EOF
 a2enconf acme-challenge

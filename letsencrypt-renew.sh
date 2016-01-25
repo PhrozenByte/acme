@@ -39,7 +39,7 @@ fi
 function showUsage() {
     echo "Usage:"
     echo "  $APP_NAME --all"
-    echo "  $APP_NAME [DOMAIN_NAME...]"
+    echo "  $APP_NAME DOMAIN_NAME..."
 }
 
 # read parameters
