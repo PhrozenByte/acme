@@ -1,6 +1,6 @@
 #!/bin/bash
 # Issue Let's Encrypt SSL certificates using acme-tiny 
-# Version 1.0 (build 20160123)
+# Version 1.1 (build 20160201)
 #
 # Copyright (C) 2016  Daniel Rudolf <www.daniel-rudolf.de>
 #
@@ -19,8 +19,8 @@
 APP_NAME="$(basename "$0")"
 set -e
 
-VERSION="1.0"
-BUILD="20160123"
+VERSION="1.1"
+BUILD="20160201"
 
 if [ "$(id -u)" != "0" ]; then
     echo "$APP_NAME: You must run this as root" >&2
@@ -98,12 +98,12 @@ fi
 exec 3> >(sed 's/^/    /g')
 
 # create target directory
-echo "Prepare target directory..."
+echo "Preparing target directory..."
 DATE="$(date --utc +'%FT%TZ')"
 sudo -u acme -- mkdir -p "/etc/ssl/acme/archive/$DOMAIN/$DATE"
 
 # generate private key (requires root)
-echo "Generate private key..."
+echo "Generating private key..."
 ( umask 027 && openssl genrsa -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" 4096 2>&3 )
 chown root:ssl-cert "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem"
 
@@ -113,7 +113,7 @@ if [ "$(head -n 1 "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem")" != "-----BEGIN
 fi
 
 # create CSR
-echo "Create CSR..."
+echo "Creating CSR..."
 if [ -z "$DOMAIN_ALIASES" ]; then
     sudo -u acme -- openssl req -new -sha256 \
         -key "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" \
@@ -143,7 +143,7 @@ if [ "$(head -n 1 "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem")" != "-----BEGIN
 fi
 
 # issue certificate using acme-tiny
-echo "Issue certificate..."
+echo "Issuing certificate..."
 sudo -u acme -- acme-tiny \
     --account-key "/etc/ssl/acme/account.key" \
     --csr "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem" \
@@ -155,17 +155,26 @@ if [ "$(head -n 1 "/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem")" != "-----BEGI
     exit 1
 fi
 
-# copy chain.pem
-echo "Copy chain.pem..."
-sudo -u acme -- cp "/etc/ssl/acme/intermediate.pem" "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem"
+# download chain.pem from whatsmychaincert.com
+# bloody workaround for https://github.com/diafygi/acme-tiny/issues/77
+echo "Downloading chain.pem..."
+sudo -u acme -- curl --silent --show-error --fail \
+    --output "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem" \
+    --data-urlencode "pem@/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem" \
+    https://whatsmychaincert.com/generate 2>&3
+
+if [ "$(head -n 1 "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem")" != "-----BEGIN CERTIFICATE-----" ]; then
+    echo "$APP_NAME: Invalid chain '/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem'" >&2
+    exit 1
+fi
 
 # create fullchain.pem
-echo "Create fullchain.pem..."
+echo "Creating fullchain.pem..."
 cat "/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem" "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem" \
     | sudo -u acme -- tee "/etc/ssl/acme/archive/$DOMAIN/$DATE/fullchain.pem" > /dev/null
 
 # symlink target dir in live dir
-echo "Deploy certificate..."
+echo "Deploying certificate..."
 [ -h "/etc/ssl/acme/live/$DOMAIN" ] && sudo -u acme -- rm "/etc/ssl/acme/live/$DOMAIN"
 sudo -u acme -- ln -s "/etc/ssl/acme/archive/$DOMAIN/$DATE/" "/etc/ssl/acme/live/$DOMAIN"
 

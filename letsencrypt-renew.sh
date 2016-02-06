@@ -1,6 +1,6 @@
 #!/bin/bash
 # Renew Let's Encrypt SSL certificates using acme-tiny 
-# Version 1.0 (build 20160123)
+# Version 1.1 (build 20160201)
 #
 # Copyright (C) 2016  Daniel Rudolf <www.daniel-rudolf.de>
 #
@@ -19,8 +19,8 @@
 APP_NAME="$(basename "$0")"
 set -e
 
-VERSION="1.0"
-BUILD="20160123"
+VERSION="1.1"
+BUILD="20160201"
 
 if [ "$(id -u)" != "0" ]; then
     echo "$APP_NAME: You must run this as root" >&2
@@ -99,10 +99,10 @@ IFS=' '; for DOMAIN in $DOMAINS; do
         continue
     fi
 
-    echo "Prepare target dir..."
+    echo "Preparing target dir..."
     sudo -u acme -- mkdir -p "/etc/ssl/acme/archive/$DOMAIN/$DATE"
 
-    echo "Copy CSR..."
+    echo "Copying CSR..."
     sudo -u acme -- cp "/etc/ssl/acme/live/$DOMAIN/csr.pem" "/etc/ssl/acme/archive/$DOMAIN/$DATE/"
 
     exec 3>&1
@@ -117,18 +117,26 @@ IFS=' '; for DOMAIN in $DOMAINS; do
         echo "ERROR: Invalid certificate '/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem'" >&2
         exit 1
     fi
+    
+    echo "Downloading chain.pem..."
+    sudo -u acme -- curl --silent --show-error --fail \
+        --output "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem" \
+        --data-urlencode "pem@/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem" \
+        https://whatsmychaincert.com/generate
 
-    echo "Copy chain.pem..."
-    sudo -u acme -- cp "/etc/ssl/acme/intermediate.pem" "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem"
+    if [ "$(head -n 1 "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem")" != "-----BEGIN CERTIFICATE-----" ]; then
+        echo "ERROR: Invalid chain '/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem'" >&2
+        exit 1
+    fi
 
-    echo "Create fullchain.pem..."
+    echo "Creating fullchain.pem..."
     cat "/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem" "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem" \
         | sudo -u acme -- tee "/etc/ssl/acme/archive/$DOMAIN/$DATE/fullchain.pem" > /dev/null
 
-    echo "Copy private key..." # requires root
+    echo "Copying private key..." # requires root
     cp -p "/etc/ssl/acme/live/$DOMAIN/key.pem" "/etc/ssl/acme/archive/$DOMAIN/$DATE/"
 
-    echo "Deploy new certificate..."
+    echo "Deploying new certificate..."
     sudo -u acme -- rm "/etc/ssl/acme/live/$DOMAIN"
     sudo -u acme -- ln -s "/etc/ssl/acme/archive/$DOMAIN/$DATE/" "/etc/ssl/acme/live/$DOMAIN"
     echo "Certificate renewed!"

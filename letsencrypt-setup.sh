@@ -16,10 +16,6 @@ usermod -aG ssl-cert acme
 mkdir /etc/ssl/acme/{,live,archive}
 chown acme:acme /etc/ssl/acme/{,live,archive}
 
-# download Let's Encrypt intermediate certificate
-wget -O /etc/ssl/acme/intermediate.pem https://letsencrypt.org/certs/lets-encrypt-x1-cross-signed.pem
-chown acme:acme /etc/ssl/acme/intermediate.pem
-
 # create Let's Encrypt account key
 ( umask 027 && openssl genrsa 4096 > /etc/ssl/acme/account.key )
 chown acme:acme /etc/ssl/acme/account.key
