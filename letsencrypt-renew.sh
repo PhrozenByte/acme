@@ -1,6 +1,6 @@
 #!/bin/bash
 # Renew Let's Encrypt SSL certificates using acme-tiny 
-# Version 1.1 (build 20160201)
+# Version 1.2 (build 20160401)
 #
 # Copyright (C) 2016  Daniel Rudolf <www.daniel-rudolf.de>
 #
@@ -19,8 +19,8 @@
 APP_NAME="$(basename "$0")"
 set -e
 
-VERSION="1.1"
-BUILD="20160201"
+VERSION="1.2"
+BUILD="20160401"
 
 if [ "$(id -u)" != "0" ]; then
     echo "$APP_NAME: You must run this as root" >&2
@@ -119,10 +119,17 @@ IFS=' '; for DOMAIN in $DOMAINS; do
     fi
     
     echo "Downloading chain.pem..."
+    INTERMEDIATE_CERT_DER="$(sudo -u acme -- mktemp)"
+
     sudo -u acme -- curl --silent --show-error --fail \
-        --output "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem" \
-        --data-urlencode "pem@/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem" \
-        https://whatsmychaincert.com/generate
+        --output "$INTERMEDIATE_CERT_DER" \
+        https://acme-v01.api.letsencrypt.org/acme/issuer-cert
+
+    sudo -u acme -- openssl x509 \
+        -in "$INTERMEDIATE_CERT_DER" -inform der \
+        -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem" -outform pem
+
+    sudo -u acme -- rm "$INTERMEDIATE_CERT_DER"
 
     if [ "$(head -n 1 "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem")" != "-----BEGIN CERTIFICATE-----" ]; then
         echo "ERROR: Invalid chain '/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem'" >&2

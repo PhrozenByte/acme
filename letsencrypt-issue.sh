@@ -1,6 +1,6 @@
 #!/bin/bash
 # Issue Let's Encrypt SSL certificates using acme-tiny 
-# Version 1.1 (build 20160201)
+# Version 1.2 (build 20160401)
 #
 # Copyright (C) 2016  Daniel Rudolf <www.daniel-rudolf.de>
 #
@@ -19,8 +19,8 @@
 APP_NAME="$(basename "$0")"
 set -e
 
-VERSION="1.1"
-BUILD="20160201"
+VERSION="1.2"
+BUILD="20160401"
 
 if [ "$(id -u)" != "0" ]; then
     echo "$APP_NAME: You must run this as root" >&2
@@ -94,9 +94,6 @@ if [ -d "/etc/ssl/acme/archive/$DOMAIN" ] && [ "$FORCE" == "no" ]; then
     exit 1
 fi
 
-# write to fd3 to indent output
-exec 3> >(sed 's/^/    /g')
-
 # create target directory
 echo "Preparing target directory..."
 DATE="$(date --utc +'%FT%TZ')"
@@ -104,7 +101,7 @@ sudo -u acme -- mkdir -p "/etc/ssl/acme/archive/$DOMAIN/$DATE"
 
 # generate private key (requires root)
 echo "Generating private key..."
-( umask 027 && openssl genrsa -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" 4096 2>&3 )
+( umask 027 && openssl genrsa -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" 4096 )
 chown root:ssl-cert "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem"
 
 if [ "$(head -n 1 "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem")" != "-----BEGIN RSA PRIVATE KEY-----" ]; then
@@ -118,7 +115,7 @@ if [ -z "$DOMAIN_ALIASES" ]; then
     sudo -u acme -- openssl req -new -sha256 \
         -key "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" \
         -subj "/CN=$DOMAIN" \
-        -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem" 2>&3
+        -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem"
 else
     SAN="DNS:$DOMAIN"
     IFS=' '; for DOMAIN_ALIAS in $DOMAIN_ALIASES; do
@@ -132,7 +129,7 @@ else
     sudo -u acme -- openssl req -new -sha256 \
         -key "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" \
         -subj "/" -reqexts SAN -config "$OPENSSL_CONFIG" \
-        -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem" 2>&3
+        -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem"
 
     sudo -u acme -- rm "$OPENSSL_CONFIG"
 fi
@@ -144,24 +141,35 @@ fi
 
 # issue certificate using acme-tiny
 echo "Issuing certificate..."
+
+exec 3> >(sed 's/^/    /g')
 sudo -u acme -- acme-tiny \
     --account-key "/etc/ssl/acme/account.key" \
     --csr "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem" \
     --acme-dir "/etc/ssl/acme/challenges" 2>&3 \
     | sudo -u acme -- tee "/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem" > /dev/null
+exec 3>&-
 
 if [ "$(head -n 1 "/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem")" != "-----BEGIN CERTIFICATE-----" ]; then
     echo "$APP_NAME: Invalid certificate '/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem'" >&2
     exit 1
 fi
 
-# download chain.pem from whatsmychaincert.com
+# download chain.pem from Let's Encrypt server
 # bloody workaround for https://github.com/diafygi/acme-tiny/issues/77
-echo "Downloading chain.pem..."
+# thanks to Patrick Figel (@patf), see https://github.com/diafygi/acme-tiny/pull/114
+echo "Downloading and converting chain.pem..."
+INTERMEDIATE_CERT_DER="$(sudo -u acme -- mktemp)"
+
 sudo -u acme -- curl --silent --show-error --fail \
-    --output "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem" \
-    --data-urlencode "pem@/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem" \
-    https://whatsmychaincert.com/generate 2>&3
+    --output "$INTERMEDIATE_CERT_DER" \
+    https://acme-v01.api.letsencrypt.org/acme/issuer-cert
+
+sudo -u acme -- openssl x509 \
+    -in "$INTERMEDIATE_CERT_DER" -inform der \
+    -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem" -outform pem
+
+sudo -u acme -- rm "$INTERMEDIATE_CERT_DER"
 
 if [ "$(head -n 1 "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem")" != "-----BEGIN CERTIFICATE-----" ]; then
     echo "$APP_NAME: Invalid chain '/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem'" >&2
@@ -178,5 +186,4 @@ echo "Deploying certificate..."
 [ -h "/etc/ssl/acme/live/$DOMAIN" ] && sudo -u acme -- rm "/etc/ssl/acme/live/$DOMAIN"
 sudo -u acme -- ln -s "/etc/ssl/acme/archive/$DOMAIN/$DATE/" "/etc/ssl/acme/live/$DOMAIN"
 
-exec 3>&-
 exit 0
