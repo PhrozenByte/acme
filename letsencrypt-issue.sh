@@ -94,6 +94,9 @@ if [ -d "/etc/ssl/acme/archive/$DOMAIN" ] && [ "$FORCE" == "no" ]; then
     exit 1
 fi
 
+# write to fd3 to indent output
+exec 3> >(sed 's/^/    /g')
+
 # create target directory
 echo "Preparing target directory..."
 DATE="$(date --utc +'%FT%TZ')"
@@ -101,7 +104,7 @@ sudo -u acme -- mkdir -p "/etc/ssl/acme/archive/$DOMAIN/$DATE"
 
 # generate private key (requires root)
 echo "Generating private key..."
-( umask 027 && openssl genrsa -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" 4096 )
+( umask 027 && openssl genrsa -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" 4096 2>&3 )
 chown root:ssl-cert "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem"
 
 if [ "$(head -n 1 "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem")" != "-----BEGIN RSA PRIVATE KEY-----" ]; then
@@ -142,13 +145,11 @@ fi
 # issue certificate using acme-tiny
 echo "Issuing certificate..."
 
-exec 3> >(sed 's/^/    /g')
 sudo -u acme -- acme-tiny \
     --account-key "/etc/ssl/acme/account.key" \
     --csr "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem" \
     --acme-dir "/etc/ssl/acme/challenges" 2>&3 \
     | sudo -u acme -- tee "/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem" > /dev/null
-exec 3>&-
 
 if [ "$(head -n 1 "/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem")" != "-----BEGIN CERTIFICATE-----" ]; then
     echo "$APP_NAME: Invalid certificate '/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem'" >&2
@@ -186,4 +187,5 @@ echo "Deploying certificate..."
 [ -h "/etc/ssl/acme/live/$DOMAIN" ] && sudo -u acme -- rm "/etc/ssl/acme/live/$DOMAIN"
 sudo -u acme -- ln -s "/etc/ssl/acme/archive/$DOMAIN/$DATE/" "/etc/ssl/acme/live/$DOMAIN"
 
+exec 3>&-
 exit 0

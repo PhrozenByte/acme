@@ -3,9 +3,9 @@ echo "Read, understand and edit this file, don't just execute it!"
 exit 1
 
 # download and install latest version of acme-tiny
-# all credit goes to those awesome guys!
+# all credit goes to these awesome guys!
 wget -O /usr/local/bin/acme-tiny https://raw.githubusercontent.com/diafygi/acme-tiny/master/acme_tiny.py
-chown +x /usr/local/bin/acme-tiny
+chmod +x /usr/local/bin/acme-tiny
 
 # add acme user
 adduser --system --home /etc/ssl/acme --no-create-home --disabled-login --disabled-password --group acme
