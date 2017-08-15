@@ -1,8 +1,8 @@
 #!/bin/bash
-# Issue Let's Encrypt SSL certificates using acme-tiny 
-# Version 1.2 (build 20160401)
+# Issue Let's Encrypt SSL certificates using acme-tiny
+# Version 1.3 (build 20170815)
 #
-# Copyright (C) 2016  Daniel Rudolf <www.daniel-rudolf.de>
+# Copyright (C) 2016-2017  Daniel Rudolf <www.daniel-rudolf.de>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,8 +19,8 @@
 APP_NAME="$(basename "$0")"
 set -e
 
-VERSION="1.2"
-BUILD="20160401"
+VERSION="1.3"
+BUILD="20170815"
 
 if [ "$(id -u)" != "0" ]; then
     echo "$APP_NAME: You must run this as root" >&2
@@ -38,18 +38,21 @@ fi
 
 function showUsage() {
     echo "Usage:"
-    echo "  $APP_NAME DOMAIN_NAME [DOMAIN_ALIAS...]"
+    echo "  $APP_NAME [--force] DOMAIN_NAME [DOMAIN_ALIAS...]"
+    echo "  $APP_NAME --renew DOMAIN_NAME"
 }
 
 # read parameters
-DOMAIN=""
-DOMAIN_ALIASES=""
+RENEW="no"
 FORCE="no"
+DOMAIN=""
+DOMAIN_ALIASES=()
 while [ $# -gt 0 ]; do
     if [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
         showUsage
         echo
         echo "Options:"
+        echo "  -r, --renew   renew a existing certificate"
         echo "  -f, --force   issue a new certificate even though there is another"
         echo "                certificate for this DOMAIN_NAME"
         echo
@@ -57,41 +60,64 @@ while [ $# -gt 0 ]; do
         echo "  -h, --help      display this help and exit"
         echo "      --version   output version information and exit"
         exit 0
-
     elif [ "$1" == "--version" ]; then
         echo "letsencrypt-issue.sh $VERSION ($BUILD)"
-        echo "Copyright (C) 2016 Daniel Rudolf"
+        echo "Copyright (C) 2016-2017 Daniel Rudolf"
         echo "License GPLv3: GNU GPL version 3 only <http://gnu.org/licenses/gpl.html>."
         echo "This is free software: you are free to change and redistribute it."
         echo "There is NO WARRANTY, to the extent permitted by law."
         echo
         echo "Written by Daniel Rudolf <http://www.daniel-rudolf.de/>"
         exit 0
-
+    elif [ "$1" == "--renew" ] || [ "$1" == "-r" ]; then
+        RENEW="yes"
     elif [ "$1" == "--force" ] || [ "$1" == "-f" ]; then
         FORCE="yes"
-
     elif [ -z "$DOMAIN" ]; then
         DOMAIN="$1"
-    elif [ -z "$DOMAIN_ALIASES" ]; then
-        DOMAIN_ALIASES="$1"
     else
-        DOMAIN_ALIASES+=" $1"
+        DOMAIN_ALIASES+=( "$1" )
     fi
 
     shift
 done
+
 if [ -z "$DOMAIN" ]; then
-    echo "$APP_NAME: You must pass a domain name" >&2
+    echo "$APP_NAME: You must pass a DOMAIN_NAME" >&2
     showUsage
     exit 1
 fi
 
-# force certificate creation?
-if [ -d "/etc/ssl/acme/archive/$DOMAIN" ] && [ "$FORCE" == "no" ]; then
-    echo "$APP_NAME: Conflicting target directory '/etc/ssl/acme/archive/$DOMAIN' found" >&2
-    echo "$APP_NAME: Use --force to suppress this error" >&2
-    exit 1
+# check target directory
+if [ "$RENEW" == "no" ]; then
+    if [ -d "/etc/ssl/acme/archive/$DOMAIN" ] && [ "$FORCE" == "no" ]; then
+        echo "$APP_NAME: Conflicting target directory '/etc/ssl/acme/archive/$DOMAIN' found" >&2
+        echo "$APP_NAME: Use --force to suppress this error" >&2
+        exit 1
+    fi
+else
+    if [ ! -d "/etc/ssl/acme/live/$DOMAIN" ]; then
+        echo "$APP_NAME: No certificate to renew found" >&2
+        exit 1
+    fi
+fi
+
+# prepare subjectAltName (SAN)
+SAN=""
+if [ "$RENEW" == "no" ]; then
+    SAN="DNS:$DOMAIN"
+    for DOMAIN_ALIAS in "${DOMAIN_ALIASES[@]}"; do
+        SAN+=", DNS:$DOMAIN_ALIAS"
+    done
+else
+    if [ ${#DOMAIN_ALIASES[@]} -gt 0 ]; then
+        echo "$APP_NAME: You mustn't pass domain aliases when renewing a certificate" >&2
+        echo "$APP_NAME: Use --force instead of --renew to issue a new certificate" >&2
+        exit 1
+    fi
+
+    SAN="$(openssl x509 -noout -text -in "/etc/ssl/acme/live/$DOMAIN/cert.pem" \
+        | awk '/X509v3 Subject Alternative Name/ {getline; sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); print}')"
 fi
 
 # write to fd3 to indent output
@@ -107,37 +133,26 @@ echo "Generating private key..."
 ( umask 027 && openssl genrsa -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" 4096 2>&3 )
 chown root:ssl-cert "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem"
 
-if [ "$(head -n 1 "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem")" != "-----BEGIN RSA PRIVATE KEY-----" ]; then
+if ! openssl rsa -in "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" -check -noout > /dev/null 2>&1; then
     echo "$APP_NAME: Invalid private key '/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem'" >&2
     exit 1
 fi
 
 # create CSR
 echo "Creating CSR..."
-if [ -z "$DOMAIN_ALIASES" ]; then
-    sudo -u acme -- openssl req -new -sha256 \
-        -key "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" \
-        -subj "/CN=$DOMAIN" \
-        -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem"
-else
-    SAN="DNS:$DOMAIN"
-    IFS=' '; for DOMAIN_ALIAS in $DOMAIN_ALIASES; do
-        SAN+=",DNS:$DOMAIN_ALIAS"
-    done
 
-    OPENSSL_CONFIG="$(sudo -u acme -- mktemp)"
-    cat "/etc/ssl/openssl.cnf" <(printf "[SAN]\nsubjectAltName=$SAN\n") \
-        | sudo -u acme -- tee "$OPENSSL_CONFIG" > /dev/null
+OPENSSL_CONFIG="$(sudo -u acme -- mktemp)"
+cat "/etc/ssl/openssl.cnf" <(printf "[SAN]\nsubjectAltName=$SAN\n") \
+    | sudo -u acme -- tee "$OPENSSL_CONFIG" > /dev/null
 
-    sudo -u acme -- openssl req -new -sha256 \
-        -key "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" \
-        -subj "/" -reqexts SAN -config "$OPENSSL_CONFIG" \
-        -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem"
+sudo -u acme -- openssl req -new -sha256 \
+    -key "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" \
+    -subj "/" -reqexts SAN -config "$OPENSSL_CONFIG" \
+    -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem"
 
-    sudo -u acme -- rm "$OPENSSL_CONFIG"
-fi
+sudo -u acme -- rm "$OPENSSL_CONFIG"
 
-if [ "$(head -n 1 "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem")" != "-----BEGIN CERTIFICATE REQUEST-----" ]; then
+if ! openssl req -in "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem" -verify -noout > /dev/null 2>&1; then
     echo "$APP_NAME: Invalid CSR '/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem'" >&2
     exit 1
 fi
@@ -151,7 +166,7 @@ sudo -u acme -- acme-tiny \
     --acme-dir "/etc/ssl/acme/challenges" 2>&3 \
     | sudo -u acme -- tee "/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem" > /dev/null
 
-if [ "$(head -n 1 "/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem")" != "-----BEGIN CERTIFICATE-----" ]; then
+if ! openssl x509 -in "/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem" -noout > /dev/null 2>&1; then
     echo "$APP_NAME: Invalid certificate '/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem'" >&2
     exit 1
 fi
@@ -172,7 +187,7 @@ sudo -u acme -- openssl x509 \
 
 sudo -u acme -- rm "$INTERMEDIATE_CERT_DER"
 
-if [ "$(head -n 1 "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem")" != "-----BEGIN CERTIFICATE-----" ]; then
+if ! openssl x509 -in "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem" -noout > /dev/null 2>&1; then
     echo "$APP_NAME: Invalid chain '/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem'" >&2
     exit 1
 fi
