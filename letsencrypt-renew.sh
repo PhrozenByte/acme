@@ -1,8 +1,8 @@
 #!/bin/bash
 # Renew Let's Encrypt SSL certificates using acme-tiny
-# Version 1.3 (build 20170815)
+# Version 1.4 (build 20180520)
 #
-# Copyright (C) 2016-2017  Daniel Rudolf <www.daniel-rudolf.de>
+# Copyright (C) 2016-2018  Daniel Rudolf <www.daniel-rudolf.de>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,8 +19,8 @@
 APP_NAME="$(basename "$0")"
 set -e
 
-VERSION="1.3"
-BUILD="20170815"
+VERSION="1.4"
+BUILD="20180520"
 
 if [ ! -d "/etc/ssl/acme" ]; then
     echo "$APP_NAME: Base directory '/etc/ssl/acme' not found" >&2
@@ -52,7 +52,7 @@ while [ $# -gt 0 ]; do
         exit 0
     elif [ "$1" == "--version" ]; then
         echo "letsencrypt-renew.sh $VERSION ($BUILD)"
-        echo "Copyright (C) 2016-2017 Daniel Rudolf"
+        echo "Copyright (C) 2016-2018 Daniel Rudolf"
         echo "License GPLv3: GNU GPL version 3 only <http://gnu.org/licenses/gpl.html>."
         echo "This is free software: you are free to change and redistribute it."
         echo "There is NO WARRANTY, to the extent permitted by law."
