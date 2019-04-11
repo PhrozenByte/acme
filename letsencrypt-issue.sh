@@ -1,8 +1,8 @@
 #!/bin/bash
 # Issue Let's Encrypt SSL certificates using acme-tiny
-# Version 1.4 (build 20180520)
+# Version 1.5 (build 20190411)
 #
-# Copyright (C) 2016-2018  Daniel Rudolf <www.daniel-rudolf.de>
+# Copyright (C) 2016-2019  Daniel Rudolf <www.daniel-rudolf.de>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,8 +19,8 @@
 APP_NAME="$(basename "$0")"
 set -e
 
-VERSION="1.4"
-BUILD="20180520"
+VERSION="1.5"
+BUILD="20190411"
 
 if [ "$(id -u)" != "0" ]; then
     echo "$APP_NAME: You must run this as root" >&2
@@ -62,7 +62,7 @@ while [ $# -gt 0 ]; do
         exit 0
     elif [ "$1" == "--version" ]; then
         echo "letsencrypt-issue.sh $VERSION ($BUILD)"
-        echo "Copyright (C) 2016-2018 Daniel Rudolf"
+        echo "Copyright (C) 2016-2019 Daniel Rudolf"
         echo "License GPLv3: GNU GPL version 3 only <http://gnu.org/licenses/gpl.html>."
         echo "This is free software: you are free to change and redistribute it."
         echo "There is NO WARRANTY, to the extent permitted by law."
@@ -130,7 +130,7 @@ sudo -u acme -- mkdir -p "/etc/ssl/acme/archive/$DOMAIN/$DATE"
 
 # generate private key (requires root)
 echo "Generating private key..."
-( umask 027 && openssl genrsa -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" 4096 2>&3 )
+( umask 027 && openssl genrsa -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" 4096 2>&3 && chmod 640 "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" )
 chown root:ssl-cert "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem"
 
 if ! openssl rsa -in "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" -check -noout > /dev/null 2>&1; then
