@@ -1,8 +1,8 @@
 #!/bin/bash
 # Renew Let's Encrypt SSL certificates using acme-tiny
-# Version 1.5 (build 20190411)
+# Version 1.6 (build 20200919)
 #
-# Copyright (C) 2016-2019  Daniel Rudolf <www.daniel-rudolf.de>
+# Copyright (C) 2016-2020  Daniel Rudolf <www.daniel-rudolf.de>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,8 +19,8 @@
 APP_NAME="$(basename "$0")"
 set -e
 
-VERSION="1.5"
-BUILD="20190411"
+VERSION="1.6"
+BUILD="20200919"
 
 if [ ! -d "/etc/ssl/acme" ]; then
     echo "$APP_NAME: Base directory '/etc/ssl/acme' not found" >&2
@@ -37,6 +37,7 @@ function showUsage() {
 }
 
 # read parameters
+VERBOSE="no"
 DOMAINS=()
 while [ $# -gt 0 ]; do
     if [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
@@ -44,6 +45,7 @@ while [ $# -gt 0 ]; do
         echo
         echo "Options:"
         echo "  -a, --all       renew all certificates"
+        echo "  -v, --verbose   explain what is being done"
         echo "  -q, --quiet     suppress status information"
         echo
         echo "Help options:"
@@ -52,13 +54,15 @@ while [ $# -gt 0 ]; do
         exit 0
     elif [ "$1" == "--version" ]; then
         echo "letsencrypt-renew.sh $VERSION ($BUILD)"
-        echo "Copyright (C) 2016-2019 Daniel Rudolf"
+        echo "Copyright (C) 2016-2020 Daniel Rudolf"
         echo "License GPLv3: GNU GPL version 3 only <http://gnu.org/licenses/gpl.html>."
         echo "This is free software: you are free to change and redistribute it."
         echo "There is NO WARRANTY, to the extent permitted by law."
         echo
         echo "Written by Daniel Rudolf <http://www.daniel-rudolf.de/>"
         exit 0
+    elif [ "$1" == "--verbose" ] || [ "$1" == "-v" ]; then
+        VERBOSE="yes"
     elif [ "$1" == "--quiet" ] || [ "$1" == "-q" ]; then
         # pipe stdout to /dev/null
         exec 1> /dev/null
@@ -79,12 +83,23 @@ if [ ${#DOMAINS[@]} -eq 0 ]; then
     exit 1
 fi
 
-# renew every domain in a subprocess
 EXIT_CODE=0
-for DOMAIN in "${DOMAINS[@]}"; do
-    echo "# Renewing '$DOMAIN'..."
-    letsencrypt-issue --renew "$DOMAIN" || { EXIT_CODE=$?; true; }
-    echo
-done
+if [ "$VERBOSE" == "yes" ]; then
+    for DOMAIN in "${DOMAINS[@]}"; do
+        echo "Renewing '$DOMAIN'..."
+        letsencrypt-issue --renew "$DOMAIN" || { EXIT_CODE=$?; true; }
+    done
+
+    if [ $EXIT_CODE -ne 0 ]; then
+        echo "$APP_NAME: Renewal of one or more domains failed" >&2
+    fi
+else
+    for DOMAIN in "${DOMAINS[@]}"; do
+        echo -n "Renewing '$DOMAIN'..."
+        letsencrypt-issue --renew "$DOMAIN" > /dev/null \
+            && { echo " success"; } \
+            || { echo " failed"; EXIT_CODE=$?; true; }
+    done
+fi
 
 exit $EXIT_CODE

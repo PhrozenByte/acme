@@ -1,8 +1,8 @@
 #!/bin/bash
 # Issue Let's Encrypt SSL certificates using acme-tiny
-# Version 1.5 (build 20190411)
+# Version 1.6 (build 20200919)
 #
-# Copyright (C) 2016-2019  Daniel Rudolf <www.daniel-rudolf.de>
+# Copyright (C) 2016-2020  Daniel Rudolf <www.daniel-rudolf.de>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,8 +19,8 @@
 APP_NAME="$(basename "$0")"
 set -e
 
-VERSION="1.5"
-BUILD="20190411"
+VERSION="1.6"
+BUILD="20200919"
 
 if [ "$(id -u)" != "0" ]; then
     echo "$APP_NAME: You must run this as root" >&2
@@ -62,7 +62,7 @@ while [ $# -gt 0 ]; do
         exit 0
     elif [ "$1" == "--version" ]; then
         echo "letsencrypt-issue.sh $VERSION ($BUILD)"
-        echo "Copyright (C) 2016-2019 Daniel Rudolf"
+        echo "Copyright (C) 2016-2020 Daniel Rudolf"
         echo "License GPLv3: GNU GPL version 3 only <http://gnu.org/licenses/gpl.html>."
         echo "This is free software: you are free to change and redistribute it."
         echo "There is NO WARRANTY, to the extent permitted by law."
@@ -125,12 +125,15 @@ exec 3> >(sed 's/^/    /g')
 
 # create target directory
 echo "Preparing target directory..."
+
 DATE="$(date --utc +'%FT%TZ')"
 sudo -u acme -- mkdir -p "/etc/ssl/acme/archive/$DOMAIN/$DATE"
 
 # generate private key (requires root)
 echo "Generating private key..."
-( umask 027 && openssl genrsa -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" 4096 2>&3 && chmod 640 "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" )
+
+( umask 027 && openssl genrsa -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" 4096 2>&3 )
+chmod 640 "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem"
 chown root:ssl-cert "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem"
 
 if ! openssl rsa -in "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" -check -noout > /dev/null 2>&1; then
@@ -165,40 +168,46 @@ sudo -u acme -- acme-tiny \
     --csr "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem" \
     --acme-dir "/etc/ssl/acme/challenges" \
     --disable-check 2>&3 \
-    | sudo -u acme -- tee "/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem" > /dev/null
+    | sudo -u acme -- tee "/etc/ssl/acme/archive/$DOMAIN/$DATE/fullchain.pem" > /dev/null
+
+if ! openssl x509 -in "/etc/ssl/acme/archive/$DOMAIN/$DATE/fullchain.pem" -noout > /dev/null 2>&1; then
+    echo "$APP_NAME: Invalid certificate chain '/etc/ssl/acme/archive/$DOMAIN/$DATE/fullchain.pem'" >&2
+    exit 1
+fi
+
+# split fullchain.pem into cert.pem and chain.pem
+echo "Splitting certificate chain..."
+
+SPLIT_FILE=""
+SPLIT_MATCH="no"
+while IFS= read -r SPLIT_LINE; do
+    if [ "$SPLIT_LINE" == "-----BEGIN CERTIFICATE-----" ]; then
+        [ -z "$SPLIT_FILE" ] && SPLIT_FILE="cert.pem" || SPLIT_FILE="chain.pem"
+        SPLIT_MATCH="yes"
+    fi
+
+    if [ "$SPLIT_MATCH" == "yes" ]; then
+        echo "$SPLIT_LINE" | sudo -u acme -- tee -a "/etc/ssl/acme/archive/$DOMAIN/$DATE/$SPLIT_FILE" > /dev/null
+    fi
+
+    if [ "$SPLIT_LINE" == "-----END CERTIFICATE-----" ]; then
+        SPLIT_MATCH="no"
+    fi
+done < "/etc/ssl/acme/archive/$DOMAIN/$DATE/fullchain.pem"
 
 if ! openssl x509 -in "/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem" -noout > /dev/null 2>&1; then
     echo "$APP_NAME: Invalid certificate '/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem'" >&2
     exit 1
 fi
 
-# download chain.pem from Let's Encrypt server
-# bloody workaround for https://github.com/diafygi/acme-tiny/issues/77
-# thanks to Patrick Figel (@patf), see https://github.com/diafygi/acme-tiny/pull/114
-echo "Downloading and converting chain.pem..."
-INTERMEDIATE_CERT_DER="$(sudo -u acme -- mktemp)"
-
-sudo -u acme -- curl --silent --show-error --fail \
-    --output "$INTERMEDIATE_CERT_DER" \
-    https://acme-v01.api.letsencrypt.org/acme/issuer-cert
-
-sudo -u acme -- openssl x509 \
-    -in "$INTERMEDIATE_CERT_DER" -inform der \
-    -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem" -outform pem
-
-sudo -u acme -- rm "$INTERMEDIATE_CERT_DER"
-
-if ! openssl x509 -in "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem" -noout > /dev/null 2>&1; then
-    echo "$APP_NAME: Invalid chain '/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem'" >&2
+if [ ! -e "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem" ]; then
+    sudo -u acme -- touch "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem"
+elif ! openssl x509 -in "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem" -noout > /dev/null 2>&1; then
+    echo "$APP_NAME: Invalid intermediate certificate(s) '/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem'" >&2
     exit 1
 fi
 
-# create fullchain.pem
-echo "Creating fullchain.pem..."
-cat "/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem" "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem" \
-    | sudo -u acme -- tee "/etc/ssl/acme/archive/$DOMAIN/$DATE/fullchain.pem" > /dev/null
-
-# symlink target dir in live dir
+# symlink target dir to live dir
 echo "Deploying certificate..."
 [ -h "/etc/ssl/acme/live/$DOMAIN" ] && sudo -u acme -- rm "/etc/ssl/acme/live/$DOMAIN"
 sudo -u acme -- ln -s "/etc/ssl/acme/archive/$DOMAIN/$DATE/" "/etc/ssl/acme/live/$DOMAIN"

@@ -3,7 +3,7 @@ echo "Read, understand and edit this file, don't just execute it!"
 exit 1
 
 # download and install latest version of acme-tiny
-# all credit goes to these awesome guys!
+# all credit goes to these awesome people!
 wget -O /usr/local/bin/acme-tiny https://raw.githubusercontent.com/diafygi/acme-tiny/master/acme_tiny.py
 chmod +x /usr/local/bin/acme-tiny
 
@@ -18,6 +18,7 @@ chown acme:acme /etc/ssl/acme/{,live,archive}
 
 # create Let's Encrypt account key
 ( umask 027 && openssl genrsa 4096 > /etc/ssl/acme/account.key )
+chmod 640 /etc/ssl/acme/account.key
 chown acme:acme /etc/ssl/acme/account.key
 
 # create acme-challenge directory
@@ -47,6 +48,6 @@ chmod +x /usr/local/sbin/letsencrypt-{issue,renew}
 # install monthly renewable cronjob
 cat > /etc/cron.monthly/letsencrypt <<EOF
 #!/bin/sh
-letsencrypt-renew --all
+letsencrypt-renew --all --verbose
 EOF
 chmod +x /etc/cron.monthly/letsencrypt
