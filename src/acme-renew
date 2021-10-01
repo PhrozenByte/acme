@@ -25,8 +25,8 @@ BUILD="20200919"
 if [ ! -d "/etc/ssl/acme" ]; then
     echo "$APP_NAME: Base directory '/etc/ssl/acme' not found" >&2
     exit 1
-elif [ ! -x "$(which letsencrypt-issue)" ]; then
-    echo "$APP_NAME: 'letsencrypt-issue' executable not found" >&2
+elif [ ! -x "$(which acme-issue)" ]; then
+    echo "$APP_NAME: 'acme-issue' executable not found" >&2
     exit 1
 fi
 
@@ -53,7 +53,7 @@ while [ $# -gt 0 ]; do
         echo "      --version   output version information and exit"
         exit 0
     elif [ "$1" == "--version" ]; then
-        echo "letsencrypt-renew.sh $VERSION ($BUILD)"
+        echo "acme-renew $VERSION ($BUILD)"
         echo "Copyright (C) 2016-2020 Daniel Rudolf"
         echo "License GPLv3: GNU GPL version 3 only <http://gnu.org/licenses/gpl.html>."
         echo "This is free software: you are free to change and redistribute it."
@@ -87,7 +87,7 @@ EXIT_CODE=0
 if [ "$VERBOSE" == "yes" ]; then
     for DOMAIN in "${DOMAINS[@]}"; do
         echo "Renewing '$DOMAIN'..."
-        letsencrypt-issue --renew "$DOMAIN" || { EXIT_CODE=$?; true; }
+        acme-issue --renew "$DOMAIN" || { EXIT_CODE=$?; true; }
     done
 
     if [ $EXIT_CODE -ne 0 ]; then
@@ -96,7 +96,7 @@ if [ "$VERBOSE" == "yes" ]; then
 else
     for DOMAIN in "${DOMAINS[@]}"; do
         echo -n "Renewing '$DOMAIN'..."
-        letsencrypt-issue --renew "$DOMAIN" > /dev/null \
+        acme-issue --renew "$DOMAIN" > /dev/null \
             && { echo " success"; } \
             || { echo " failed"; EXIT_CODE=$?; true; }
     done

@@ -61,7 +61,7 @@ while [ $# -gt 0 ]; do
         echo "      --version   output version information and exit"
         exit 0
     elif [ "$1" == "--version" ]; then
-        echo "letsencrypt-issue.sh $VERSION ($BUILD)"
+        echo "acme-issue $VERSION ($BUILD)"
         echo "Copyright (C) 2016-2020 Daniel Rudolf"
         echo "License GPLv3: GNU GPL version 3 only <http://gnu.org/licenses/gpl.html>."
         echo "This is free software: you are free to change and redistribute it."

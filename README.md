@@ -1,7 +1,7 @@
-#!/bin/bash
-echo "Read, understand and edit this file, don't just execute it!"
-exit 1
+ACME Issue & Renew
+==================
 
+```sh
 # download and install latest version of acme-tiny
 # all credit goes to these awesome people!
 wget -O /usr/local/bin/acme-tiny https://raw.githubusercontent.com/diafygi/acme-tiny/master/acme_tiny.py
@@ -41,13 +41,14 @@ a2enconf acme-challenge
 service apache2 reload
 
 # install scripts
-mv letsencrypt-issue.sh /usr/local/sbin/letsencrypt-issue
-mv letsencrypt-renew.sh /usr/local/sbin/letsencrypt-renew
-chmod +x /usr/local/sbin/letsencrypt-{issue,renew}
+mv acme-issue /usr/local/sbin/acme-issue
+mv acme-renew /usr/local/sbin/acme-renew
+chmod +x /usr/local/sbin/acme-{issue,renew}
 
 # install monthly renewable cronjob
-cat > /etc/cron.monthly/letsencrypt <<EOF
+cat > /etc/cron.monthly/acme <<EOF
 #!/bin/sh
-letsencrypt-renew --all --verbose
+acme-renew --all --verbose
 EOF
-chmod +x /etc/cron.monthly/letsencrypt
+chmod +x /etc/cron.monthly/acme
+```
