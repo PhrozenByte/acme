@@ -1,6 +1,6 @@
 #!/bin/bash
-# Issue Let's Encrypt SSL certificates using acme-tiny
-# Version 1.6 (build 20200919)
+# Issue Let's Encrypt TLS certificate using acme-tiny
+# Version 1.8 (build 20211002)
 #
 # Copyright (c) 2016-2021  Daniel Rudolf <www.daniel-rudolf.de>
 #
@@ -11,48 +11,50 @@
 # License-Filename: LICENSE
 
 APP_NAME="$(basename "$0")"
+APP_PATH="/var/local/acme"
+CONFIG_PATH="/etc/acme"
+
+VERSION="1.8"
+BUILD="20211002"
+
 set -e
+umask 022
 
-VERSION="1.6"
-BUILD="20200919"
-
-if [ "$(id -u)" != "0" ]; then
-    echo "$APP_NAME: You must run this as root" >&2
-    exit 1
-elif [ "$(sudo -u acme -- id -un)" != "acme" ]; then
-    echo "$APP_NAME: User 'acme' not found or not sudo-able" >&2
-    exit 1
-elif [ ! -d "/etc/ssl/acme" ]; then
-    echo "$APP_NAME: Base directory '/etc/ssl/acme' not found" >&2
-    exit 1
-elif [ ! -x "$(which acme-tiny)" ]; then
-    echo "$APP_NAME: 'acme-tiny' executable not found" >&2
-    exit 1
-fi
-
-function showUsage() {
+show_usage() {
     echo "Usage:"
     echo "  $APP_NAME [--force] DOMAIN_NAME [DOMAIN_ALIAS...]"
     echo "  $APP_NAME --renew DOMAIN_NAME"
 }
 
 # read parameters
-RENEW="no"
-FORCE="no"
 DOMAIN=""
 DOMAIN_ALIASES=()
+RENEW="no"
+FORCE="no"
 while [ $# -gt 0 ]; do
+    if [[ "$1" =~ ^-[a-zA-Z0-9]{2,}$ ]]; then
+        read -a SHORT_OPTS <<< $(echo "${1:1}" | sed 's/./-& /g')
+        set -- "${SHORT_OPTS[@]}" "${@:2}"
+        continue
+    fi
+
     if [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
-        showUsage
+        show_usage
         echo
         echo "Options:"
-        echo "  -r, --renew   renew a existing certificate"
-        echo "  -f, --force   issue a new certificate even though there is another"
-        echo "                certificate for this DOMAIN_NAME"
+        echo "  -r, --renew  renew an existing certificate"
+        echo "  -f, --force  issue a new certificate even though there is another"
+        echo "               certificate for this DOMAIN_NAME"
         echo
         echo "Help options:"
-        echo "  -h, --help      display this help and exit"
-        echo "      --version   output version information and exit"
+        echo "  -h, --help     display this help and exit"
+        echo "      --version  output version information and exit"
+        echo
+        echo "Environment:"
+        echo "  ACME_ACCOUNT_KEY_FILE  path to your ACME account private key"
+        echo "  ACME_ACCOUNT_CONTACT   contact details for your account"
+        echo "  ACME_DIRECTORY_URL     ACME directory URL of the CA to use"
+        echo "  TLS_KEY_GROUP          associated group for TLS key files"
         exit 0
     elif [ "$1" == "--version" ]; then
         echo "acme-issue $VERSION ($BUILD)"
@@ -76,21 +78,49 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-if [ -z "$DOMAIN" ]; then
+# check parameters and runtime requirements
+if [ "$(id -un)" != "acme" ]; then
+    echo "$APP_NAME: You must run this as user 'acme'" >&2
+    exit 1
+elif [ ! -d "$APP_PATH" ]; then
+    echo "$APP_NAME: Base directory '$APP_PATH' not found" >&2
+    exit 1
+elif [ ! -d "$CONFIG_PATH" ]; then
+    echo "$APP_NAME: Config directory '$CONFIG_PATH' not found" >&2
+    exit 1
+elif [ ! -x "$(which openssl)" ]; then
+    echo "$APP_NAME: 'openssl' executable not found" >&2
+    exit 1
+elif [ ! -x "$(which acme-tiny)" ]; then
+    echo "$APP_NAME: 'acme-tiny' executable not found" >&2
+    exit 1
+elif [ -z "$DOMAIN" ]; then
     echo "$APP_NAME: You must pass a DOMAIN_NAME" >&2
-    showUsage
+    show_usage
+    exit 1
+fi
+
+# include config file
+if [ -f "$CONFIG_PATH/config.env" ]; then
+    . "$CONFIG_PATH/config.env"
+fi
+
+# check account key
+ACME_ACCOUNT_KEY_FILE="${ACME_ACCOUNT_KEY_FILE:-$CONFIG_PATH/account.key}"
+if [ ! -e "$ACME_ACCOUNT_KEY_FILE" ]; then
+    echo "$APP_NAME: Invalid account key '$ACME_ACCOUNT_KEY_FILE': No such file or directory" >&2
     exit 1
 fi
 
 # check target directory
 if [ "$RENEW" == "no" ]; then
-    if [ -d "/etc/ssl/acme/archive/$DOMAIN" ] && [ "$FORCE" == "no" ]; then
-        echo "$APP_NAME: Conflicting target directory '/etc/ssl/acme/archive/$DOMAIN' found" >&2
+    if [ -d "$APP_PATH/archive/$DOMAIN" ] && [ "$FORCE" == "no" ]; then
+        echo "$APP_NAME: Conflicting target directory '$APP_PATH/archive/$DOMAIN' found" >&2
         echo "$APP_NAME: Use --force to suppress this error" >&2
         exit 1
     fi
 else
-    if [ ! -d "/etc/ssl/acme/live/$DOMAIN" ]; then
+    if [ ! -d "$APP_PATH/live/$DOMAIN" ]; then
         echo "$APP_NAME: No certificate to renew found" >&2
         exit 1
     fi
@@ -110,7 +140,7 @@ else
         exit 1
     fi
 
-    SAN="$(openssl x509 -noout -text -in "/etc/ssl/acme/live/$DOMAIN/cert.pem" \
+    SAN="$(openssl x509 -noout -text -in "$APP_PATH/live/$DOMAIN/cert.pem" \
         | awk '/X509v3 Subject Alternative Name/ {getline; sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); print}')"
 fi
 
@@ -121,90 +151,87 @@ exec 3> >(sed 's/^/    /g')
 echo "Preparing target directory..."
 
 DATE="$(date --utc +'%FT%TZ')"
-sudo -u acme -- mkdir -p "/etc/ssl/acme/archive/$DOMAIN/$DATE"
+mkdir -p "$APP_PATH/archive/$DOMAIN/$DATE"
 
-# generate private key (requires root)
+# generate private key
 echo "Generating private key..."
 
-( umask 027 && openssl genrsa -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" 4096 2>&3 )
-chmod 640 "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem"
-chown root:ssl-cert "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem"
+( umask 027 && openssl genrsa -out "$APP_PATH/archive/$DOMAIN/$DATE/key.pem" 4096 2>&3 )
+chmod 640 "$APP_PATH/archive/$DOMAIN/$DATE/key.pem"
+[ -z "$TLS_KEY_GROUP" ] || chgrp "$TLS_KEY_GROUP" "$APP_PATH/archive/$DOMAIN/$DATE/key.pem"
 
-if ! openssl rsa -in "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" -check -noout > /dev/null 2>&1; then
-    echo "$APP_NAME: Invalid private key '/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem'" >&2
+if ! openssl rsa -in "$APP_PATH/archive/$DOMAIN/$DATE/key.pem" -check -noout > /dev/null 2>&1; then
+    echo "$APP_NAME: Invalid private key '$APP_PATH/archive/$DOMAIN/$DATE/key.pem'" >&2
     exit 1
 fi
 
 # create CSR
 echo "Creating CSR..."
 
-OPENSSL_CONFIG="$(sudo -u acme -- mktemp)"
-cat "/etc/ssl/openssl.cnf" <(printf "[SAN]\nsubjectAltName=$SAN\n") \
-    | sudo -u acme -- tee "$OPENSSL_CONFIG" > /dev/null
+OPENSSL_CONFIG="$(mktemp)"
+cat "/etc/ssl/openssl.cnf" <(printf "[SAN]\nsubjectAltName=%s\n" "$SAN") \
+    > "$OPENSSL_CONFIG"
 
-sudo -u acme -- openssl req -new -sha256 \
-    -key "/etc/ssl/acme/archive/$DOMAIN/$DATE/key.pem" \
+openssl req -new -sha256 \
+    -key "$APP_PATH/archive/$DOMAIN/$DATE/key.pem" \
     -subj "/" -reqexts SAN -config "$OPENSSL_CONFIG" \
-    -out "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem"
+    -out "$APP_PATH/archive/$DOMAIN/$DATE/csr.pem"
 
-sudo -u acme -- rm "$OPENSSL_CONFIG"
+rm "$OPENSSL_CONFIG"
 
-if ! openssl req -in "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem" -verify -noout > /dev/null 2>&1; then
-    echo "$APP_NAME: Invalid CSR '/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem'" >&2
+if ! openssl req -in "$APP_PATH/archive/$DOMAIN/$DATE/csr.pem" -verify -noout > /dev/null 2>&1; then
+    echo "$APP_NAME: Invalid CSR '$APP_PATH/archive/$DOMAIN/$DATE/csr.pem'" >&2
     exit 1
 fi
 
 # issue certificate using acme-tiny
 echo "Issuing certificate..."
 
-sudo -u acme -- acme-tiny \
-    --account-key "/etc/ssl/acme/account.key" \
-    --csr "/etc/ssl/acme/archive/$DOMAIN/$DATE/csr.pem" \
-    --acme-dir "/etc/ssl/acme/challenges" \
-    --disable-check 2>&3 \
-    | sudo -u acme -- tee "/etc/ssl/acme/archive/$DOMAIN/$DATE/fullchain.pem" > /dev/null
+ACME_OPTIONS=( --account-key "$ACME_ACCOUNT_KEY_FILE" )
+[ -z "$ACME_ACCOUNT_CONTACT" ] || ACME_OPTIONS+=( --contact "$ACME_ACCOUNT_CONTACT" )
+[ -z "$ACME_DIRECTORY_URL" ] || ACME_OPTIONS+=( --directory-url "$ACME_DIRECTORY_URL" )
 
-if ! openssl x509 -in "/etc/ssl/acme/archive/$DOMAIN/$DATE/fullchain.pem" -noout > /dev/null 2>&1; then
-    echo "$APP_NAME: Invalid certificate chain '/etc/ssl/acme/archive/$DOMAIN/$DATE/fullchain.pem'" >&2
+acme-tiny \
+    --csr "$APP_PATH/archive/$DOMAIN/$DATE/csr.pem" \
+    --acme-dir "$APP_PATH/challenges" \
+    --disable-check \
+    "${ACME_OPTIONS[@]}" 2>&3 \
+    > "$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem"
+
+if ! openssl x509 -in "$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem" -noout > /dev/null 2>&1; then
+    echo "$APP_NAME: Invalid certificate chain '$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem'" >&2
     exit 1
 fi
 
 # split fullchain.pem into cert.pem and chain.pem
 echo "Splitting certificate chain..."
 
-SPLIT_FILE=""
-SPLIT_MATCH="no"
-while IFS= read -r SPLIT_LINE; do
-    if [ "$SPLIT_LINE" == "-----BEGIN CERTIFICATE-----" ]; then
-        [ -z "$SPLIT_FILE" ] && SPLIT_FILE="cert.pem" || SPLIT_FILE="chain.pem"
-        SPLIT_MATCH="yes"
-    fi
+awk -v out_dir="$APP_PATH/archive/$DOMAIN/$DATE/" -v out_file="cert.pem" \
+    -e '/^-----BEGIN CERTIFICATE-----$/{cert=1}' \
+    -e 'cert{print > out_dir out_file}' \
+    -e '/^-----END CERTIFICATE-----$/{cert=0; out_file="chain.pem"}' \
+    -- "$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem"
 
-    if [ "$SPLIT_MATCH" == "yes" ]; then
-        echo "$SPLIT_LINE" | sudo -u acme -- tee -a "/etc/ssl/acme/archive/$DOMAIN/$DATE/$SPLIT_FILE" > /dev/null
-    fi
-
-    if [ "$SPLIT_LINE" == "-----END CERTIFICATE-----" ]; then
-        SPLIT_MATCH="no"
-    fi
-done < "/etc/ssl/acme/archive/$DOMAIN/$DATE/fullchain.pem"
-
-if ! openssl x509 -in "/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem" -noout > /dev/null 2>&1; then
-    echo "$APP_NAME: Invalid certificate '/etc/ssl/acme/archive/$DOMAIN/$DATE/cert.pem'" >&2
+if ! openssl x509 -in "$APP_PATH/archive/$DOMAIN/$DATE/cert.pem" -noout > /dev/null 2>&1; then
+    echo "$APP_NAME: Invalid certificate '$APP_PATH/archive/$DOMAIN/$DATE/cert.pem'" >&2
     exit 1
 fi
 
-if [ ! -e "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem" ]; then
-    sudo -u acme -- touch "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem"
-elif ! openssl x509 -in "/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem" -noout > /dev/null 2>&1; then
-    echo "$APP_NAME: Invalid intermediate certificate(s) '/etc/ssl/acme/archive/$DOMAIN/$DATE/chain.pem'" >&2
+if [ ! -e "$APP_PATH/archive/$DOMAIN/$DATE/chain.pem" ]; then
+    touch "$APP_PATH/archive/$DOMAIN/$DATE/chain.pem"
+elif ! openssl x509 -in "$APP_PATH/archive/$DOMAIN/$DATE/chain.pem" -noout > /dev/null 2>&1; then
+    echo "$APP_NAME: Invalid intermediate certificate(s) '$APP_PATH/archive/$DOMAIN/$DATE/chain.pem'" >&2
     exit 1
 fi
 
-# symlink target dir to live dir
+# copy files to live dir (deployment)
 echo "Deploying certificate..."
-[ -h "/etc/ssl/acme/live/$DOMAIN" ] && sudo -u acme -- rm "/etc/ssl/acme/live/$DOMAIN"
-sudo -u acme -- ln -s "/etc/ssl/acme/archive/$DOMAIN/$DATE/" "/etc/ssl/acme/live/$DOMAIN"
+[ -d "$APP_PATH/live/$DOMAIN" ] || mkdir "$APP_PATH/live/$DOMAIN"
+cp "$APP_PATH/archive/$DOMAIN/$DATE/key.pem" \
+    "$APP_PATH/archive/$DOMAIN/$DATE/cert.pem" \
+    "$APP_PATH/archive/$DOMAIN/$DATE/chain.pem" \
+    "$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem" \
+    "$APP_PATH/live/$DOMAIN/"
 
 exec 3>&-
 exit 0

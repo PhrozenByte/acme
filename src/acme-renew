@@ -1,6 +1,6 @@
 #!/bin/bash
-# Renew Let's Encrypt SSL certificates using acme-tiny
-# Version 1.6 (build 20200919)
+# Renew Let's Encrypt TLS certificates using acme-tiny
+# Version 1.8 (build 20211002)
 #
 # Copyright (c) 2016-2021  Daniel Rudolf <www.daniel-rudolf.de>
 #
@@ -11,40 +11,50 @@
 # License-Filename: LICENSE
 
 APP_NAME="$(basename "$0")"
+APP_PATH="/var/local/acme"
+
+VERSION="1.8"
+BUILD="20211002"
+
 set -e
 
-VERSION="1.6"
-BUILD="20200919"
-
-if [ ! -d "/etc/ssl/acme" ]; then
-    echo "$APP_NAME: Base directory '/etc/ssl/acme' not found" >&2
-    exit 1
-elif [ ! -x "$(which acme-issue)" ]; then
-    echo "$APP_NAME: 'acme-issue' executable not found" >&2
-    exit 1
-fi
-
-function showUsage() {
+show_usage() {
     echo "Usage:"
-    echo "  $APP_NAME --all"
-    echo "  $APP_NAME DOMAIN_NAME..."
+    echo "  $APP_NAME [--verbose|--quiet] [--retry...] --all"
+    echo "  $APP_NAME [--verbose|--quiet] [--retry...] DOMAIN_NAME..."
 }
 
 # read parameters
-VERBOSE="no"
 DOMAINS=()
+ALL_DOMAINS="no"
+RETRY=0
+VERBOSE="no"
+QUIET="no"
 while [ $# -gt 0 ]; do
+    if [[ "$1" =~ ^-[a-zA-Z0-9]{2,}$ ]]; then
+        read -a SHORT_OPTS <<< $(echo "${1:1}" | sed 's/./-& /g')
+        set -- "${SHORT_OPTS[@]}" "${@:2}"
+        continue
+    fi
+
     if [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
-        showUsage
+        show_usage
         echo
         echo "Options:"
-        echo "  -a, --all       renew all certificates"
-        echo "  -v, --verbose   explain what is being done"
-        echo "  -q, --quiet     suppress status information"
+        echo "  -a, --all      renew all certificates"
+        echo "  -r, --retry    retry if renewal fails"
+        echo "  -v, --verbose  explain what is being done"
+        echo "  -q, --quiet    suppress status information"
         echo
         echo "Help options:"
-        echo "  -h, --help      display this help and exit"
-        echo "      --version   output version information and exit"
+        echo "  -h, --help     display this help and exit"
+        echo "      --version  output version information and exit"
+        echo
+        echo "Environment:"
+        echo "  ACME_ACCOUNT_KEY_FILE  path to your ACME account private key"
+        echo "  ACME_ACCOUNT_CONTACT   contact details for your account"
+        echo "  ACME_DIRECTORY_URL     ACME directory URL of the CA to use"
+        echo "  TLS_KEY_GROUP          associated group for TLS key files"
         exit 0
     elif [ "$1" == "--version" ]; then
         echo "acme-renew $VERSION ($BUILD)"
@@ -55,15 +65,14 @@ while [ $# -gt 0 ]; do
         echo
         echo "Written by Daniel Rudolf <https://www.daniel-rudolf.de/>"
         exit 0
+    elif [ "$1" == "--all" ] || [ "$1" == "-a" ]; then
+        ALL_DOMAINS="yes"
+    elif [ "$1" == "--retry" ] || [ "$1" == "-r" ]; then
+        (( ++RETRY ))
     elif [ "$1" == "--verbose" ] || [ "$1" == "-v" ]; then
         VERBOSE="yes"
     elif [ "$1" == "--quiet" ] || [ "$1" == "-q" ]; then
-        # pipe stdout to /dev/null
-        exec 1> /dev/null
-    elif [ "$1" == "--all" ] || [ "$1" == "-a" ]; then
-        while IFS="" read -r -u 4 -d $'\0' DOMAIN; do
-            DOMAINS+=( "$DOMAIN" )
-        done 4< <(find /etc/ssl/acme/live/ -mindepth 1 -printf "%f\0")
+        QUIET="yes"
     else
         DOMAINS+=( "$1" )
     fi
@@ -71,29 +80,84 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-if [ ${#DOMAINS[@]} -eq 0 ]; then
-    echo "$APP_NAME: You must either pass --all or a DOMAIN_NAME" >&2
-    showUsage
+# check parameters and runtime requirements
+if [ "$(id -un)" != "acme" ]; then
+    echo "$APP_NAME: You must run this as user 'acme'" >&2
+    exit 1
+elif [ ! -d "$APP_PATH" ]; then
+    echo "$APP_NAME: Base directory '$APP_PATH' not found" >&2
+    exit 1
+elif [ ! -x "$(which acme-issue)" ]; then
+    echo "$APP_NAME: 'acme-issue' executable not found" >&2
+    exit 1
+elif [ ${#DOMAINS[@]} -eq 0 ]; then
+    echo "$APP_NAME: You must either pass a DOMAIN_NAME or --all" >&2
+    show_usage
     exit 1
 fi
 
+# apply parameters
+if [ "$QUIET" == "yes" ]; then
+    exec 1> /dev/null
+    exec 2> /dev/null
+fi
+
+if [ "$ALL_DOMAINS" == "yes" ]; then
+    while IFS="" read -r -u 3 -d $'\0' DOMAIN_PATH; do
+        DOMAINS+=( "$(basename "$DOMAIN_PATH")" )
+    done 3< <(find "$APP_PATH/live/" -mindepth 1 -maxdepth 1 -type d -print0)
+fi
+
+# run acme-issue
 EXIT_CODE=0
 if [ "$VERBOSE" == "yes" ]; then
     for DOMAIN in "${DOMAINS[@]}"; do
-        echo "Renewing '$DOMAIN'..."
-        acme-issue --renew "$DOMAIN" || { EXIT_CODE=$?; true; }
-    done
+        for (( RETRY_COUNT=0 ; RETRY_COUNT <= RETRY ; RETRY_COUNT++ )); do
+            [ $RETRY_COUNT -eq 0 ] \
+                && echo "Renewing '$DOMAIN'..." \
+                || echo "Retrying renewal of '$DOMAIN' in 60 seconds..."
 
-    if [ $EXIT_CODE -ne 0 ]; then
-        echo "$APP_NAME: Renewal of one or more domains failed" >&2
-    fi
+            [ $RETRY_COUNT -eq 0 ] || sleep 60
+
+            DOMAIN_STATUS=0
+            acme-issue --renew "$DOMAIN" \
+                || { DOMAIN_STATUS=$?; true; }
+
+            if [ $DOMAIN_STATUS -eq 0 ]; then
+                echo "Successfully renewed '$DOMAIN'"
+                break
+            fi
+
+            echo "Renewal of '$DOMAIN' failed"
+            EXIT_CODE=$DOMAIN_STATUS
+        done
+    done
 else
     for DOMAIN in "${DOMAINS[@]}"; do
-        echo -n "Renewing '$DOMAIN'..."
-        acme-issue --renew "$DOMAIN" > /dev/null \
-            && { echo " success"; } \
-            || { echo " failed"; EXIT_CODE=$?; true; }
+        for (( RETRY_COUNT=0 ; RETRY_COUNT <= RETRY ; RETRY_COUNT++ )); do
+            [ $RETRY_COUNT -eq 0 ] \
+                && echo -n "Renewing '$DOMAIN'..." \
+                || echo -n "Retrying '$DOMAIN'..."
+
+            [ $RETRY_COUNT -eq 0 ] || sleep 60
+
+            DOMAIN_STATUS=0
+            acme-issue --renew "$DOMAIN" > /dev/null 2>&1 \
+                || { DOMAIN_STATUS=$?; true; }
+
+            if [ $DOMAIN_STATUS -eq 0 ]; then
+                echo " success"
+                break
+            fi
+
+            echo " failed"
+            EXIT_CODE=$DOMAIN_STATUS
+        done
     done
+fi
+
+if [ $EXIT_CODE -ne 0 ] && [ "$VERBOSE" == "yes" ]; then
+    echo "$APP_NAME: Renewal of one or more domains failed" >&2
 fi
 
 exit $EXIT_CODE
