@@ -109,7 +109,7 @@ if [ "$ALL_DOMAINS" == "yes" ]; then
 fi
 
 # run acme-issue
-EXIT_CODE=0
+FAILED_DOMAINS=()
 if [ "$VERBOSE" == "yes" ]; then
     if [ ${#DOMAINS[@]} -eq 0 ]; then
         echo "No domains to renew, exiting..."
@@ -134,12 +134,14 @@ if [ "$VERBOSE" == "yes" ]; then
             fi
 
             echo "Renewal of '$DOMAIN' failed"
-            EXIT_CODE=$DOMAIN_STATUS
+            FAILED_DOMAINS+=( "$DOMAIN" )
         done
     done
 
-    if [ $EXIT_CODE -ne 0 ]; then
+    if [ ${#FAILED_DOMAINS[@]} -gt 0 ]; then
         echo "$APP_NAME: Renewal of one or more domains failed" >&2
+        printf '    - %s\n' "${FAILED_DOMAINS[@]}" >&2
+        exit 1
     fi
 else
     for DOMAIN in "${DOMAINS[@]}"; do
@@ -160,9 +162,11 @@ else
             fi
 
             echo " failed"
-            EXIT_CODE=$DOMAIN_STATUS
+            FAILED_DOMAINS+=( "$DOMAIN" )
         done
     done
-fi
 
-exit $EXIT_CODE
+    if [ ${#FAILED_DOMAINS[@]} -gt 0 ]; then
+        exit 1
+    fi
+fi
