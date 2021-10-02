@@ -127,7 +127,7 @@ chmod +x /usr/local/bin/acme-{issue,renew}
 # install monthly renewable cronjob
 cat > /etc/cron.monthly/acme <<EOF
 #!/bin/sh
-acme-renew --all --verbose --retry
+sudo -u acme -- acme-renew --all --verbose --retry
 # add commands to restart/reload services using these certs
 EOF
 chmod +x /etc/cron.monthly/acme
