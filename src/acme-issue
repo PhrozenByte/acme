@@ -2,19 +2,13 @@
 # Issue Let's Encrypt SSL certificates using acme-tiny
 # Version 1.6 (build 20200919)
 #
-# Copyright (C) 2016-2020  Daniel Rudolf <www.daniel-rudolf.de>
+# Copyright (c) 2016-2021  Daniel Rudolf <www.daniel-rudolf.de>
 #
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, version 3 of the License only.
+# This work is licensed under the terms of the MIT license.
+# For a copy, see LICENSE file or <https://opensource.org/licenses/MIT>.
 #
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# See <http://www.gnu.org/licenses/> to receive a full-text-copy of
-# the GNU General Public License.
+# SPDX-License-Identifier: MIT
+# License-Filename: LICENSE
 
 APP_NAME="$(basename "$0")"
 set -e
@@ -62,12 +56,12 @@ while [ $# -gt 0 ]; do
         exit 0
     elif [ "$1" == "--version" ]; then
         echo "acme-issue $VERSION ($BUILD)"
-        echo "Copyright (C) 2016-2020 Daniel Rudolf"
-        echo "License GPLv3: GNU GPL version 3 only <http://gnu.org/licenses/gpl.html>."
-        echo "This is free software: you are free to change and redistribute it."
-        echo "There is NO WARRANTY, to the extent permitted by law."
+        echo "Copyright (c) 2016-2021  Daniel Rudolf"
         echo
-        echo "Written by Daniel Rudolf <http://www.daniel-rudolf.de/>"
+        echo "This work is licensed under the terms of the MIT license."
+        echo "For a copy, see LICENSE file or <https://opensource.org/licenses/MIT>."
+        echo
+        echo "Written by Daniel Rudolf <https://www.daniel-rudolf.de/>"
         exit 0
     elif [ "$1" == "--renew" ] || [ "$1" == "-r" ]; then
         RENEW="yes"
