@@ -1,7 +1,7 @@
 ACME Issue & Renew
 ==================
 
-[`acme-issue`](./src/acme-issue) and [`acme-renew`](./src/acme-renew) are two small management scripts for [acme-tiny](https://github.com/diafygi/acme-tiny) to issue TLS certificates with [Let's Encrypt](https://letsencrypt.org/).
+[`acme-issue`](./src/acme-issue) and [`acme-renew`](./src/acme-renew) (formerly known as `letsencrypt-issue` and `letsencrypt-renew`) are two small management scripts for [acme-tiny](https://github.com/diafygi/acme-tiny) to issue TLS certificates with [Let's Encrypt](https://letsencrypt.org/).
 
 The scripts use a very simple directory structure below `/var/local/acme` to manage your certs and to allow a fail-safe auto renewal of certs. All certs and associated files life below `/var/local/acme/archive` inside domain-specific sub-folders. When issuing a new or renewing an existing cert, `acme-issue` will create a directory with the current date and time (e.g. `/var/local/acme/archive/example.com/2021-10-01T04:49:34Z`) and put the necessary files there, namely
 
@@ -131,4 +131,56 @@ sudo -u acme -- acme-renew --all --verbose --retry
 # add commands to restart/reload services using these certs
 EOF
 chmod +x /etc/cron.monthly/acme
+```
+
+Upgrade
+-------
+
+If you're currently running `letsencrypt-issue` v1.6 or older, you might ask yourself how to upgrade to `acme-issue` v1.8 or later. Simply check the steps below, but as with the install instructions, you **MUST** read, understand and edit these commands to fit your setup.
+
+```sh
+# create new base and config dir
+mkdir /var/local/acme /etc/acme
+
+# create config file
+cp ./conf/config.env /etc/acme/config.env
+chown acme:acme /etc/acme/config.env
+
+# RECOMMENDED: set 'ACME_ACCOUNT_CONTACT' config variable
+sed -i '/^#ACME_ACCOUNT_CONTACT=""$/a ACME_ACCOUNT_CONTACT="certs@example.com"' /etc/acme/config.env
+
+# OPTIONAL: set 'TLS_KEY_GROUP' config variable
+sed -i '/^#TLS_KEY_GROUP=""$/a TLS_KEY_GROUP="ssl-cert"' /etc/acme/config.env
+
+# move account.key
+mv /etc/ssl/acme/account.key /etc/acme/account.key
+
+# move live certs one after another (don't just copy/move the existing dir)
+mkdir /var/local/acme/live
+chown acme:acme /var/local/acme/live
+
+for DOMAIN_PATH in /etc/ssl/acme/live/*; do
+    DOMAIN="$(basename "$DOMAIN_PATH")"
+    mkdir /var/local/acme/live/"$DOMAIN"
+    chown acme:acme /var/local/acme/live/"$DOMAIN"
+
+    cp -p -t /var/local/acme/live/"$DOMAIN"/ \
+        "$DOMAIN_PATH"/{key,cert,chain,fullchain}.pem
+done
+
+# move cert archive and challenges
+mv -t /var/local/acme/ /etc/ssl/acme/{archive,challenges}
+
+# install scripts
+cp ./src/acme-issue /usr/local/bin/acme-issue
+cp ./src/acme-renew /usr/local/bin/acme-renew
+chmod +x /usr/local/bin/acme-{issue,renew}
+
+# create symlinks for old scripts
+rm -f /usr/local/bin/letsencrypt-{issue,renew}
+ln -s /usr/local/bin/acme-issue /usr/local/bin/letsencrypt-issue
+ln -s /usr/local/bin/acme-renew /usr/local/bin/letsencrypt-renew
+
+# delete old dir
+rm -rf /etc/ssl/acme
 ```
