@@ -203,6 +203,8 @@ acme-tiny \
     "${ACME_OPTIONS[@]}" 2>&3 \
     > "$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem"
 
+sleep 0.1
+
 if ! openssl x509 -in "$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem" -noout > /dev/null 2>&1; then
     echo "$APP_NAME: Invalid certificate chain '$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem'" >&2
     exit 1
