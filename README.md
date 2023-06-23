@@ -47,12 +47,12 @@ Use `acme-renew` to renew a single, multiple, or all known certs:
 
 ```
 Usage:
-  acme-renew [OPTIONS...] --all
-  acme-renew [OPTIONS...] DOMAIN_NAME...
+  acme-renew [--verbose|--quiet] [--retry...] --all
+  acme-renew [--verbose|--quiet] [--retry...] DOMAIN_NAME...
 
 Options:
   -a, --all      renew all certificates
-  -r, --retry    retry if renewal fails
+  -r, --retry    retry if renewal fails; can be passed multiple times
   -v, --verbose  explain what is being done
   -q, --quiet    suppress status information
 
@@ -127,7 +127,7 @@ chmod +x /usr/local/bin/acme-{issue,renew}
 # install monthly renewable cronjob
 cat > /etc/cron.monthly/acme <<EOF
 #!/bin/sh
-sudo -u acme -- acme-renew --all --verbose --retry
+sudo -u acme -- acme-renew --all --retry --verbose
 # add commands to restart/reload services using these certs
 EOF
 chmod +x /etc/cron.monthly/acme
@@ -183,4 +183,13 @@ ln -s /usr/local/bin/acme-renew /usr/local/bin/letsencrypt-renew
 
 # delete old dir
 rm -rf /etc/ssl/acme
+
+# update renewable cronjob
+rm /etc/cron.monthly/letsencrypt
+cat > /etc/cron.monthly/acme <<EOF
+#!/bin/sh
+sudo -u acme -- acme-renew --all --retry --verbose
+# add commands to restart/reload services using these certs
+EOF
+chmod +x /etc/cron.monthly/acme
 ```

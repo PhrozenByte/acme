@@ -42,7 +42,7 @@ while [ $# -gt 0 ]; do
         echo
         echo "Options:"
         echo "  -a, --all      renew all certificates"
-        echo "  -r, --retry    retry if renewal fails"
+        echo "  -r, --retry    retry if renewal fails; can be passed multiple times"
         echo "  -v, --verbose  explain what is being done"
         echo "  -q, --quiet    suppress status information"
         echo
