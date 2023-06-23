@@ -1,8 +1,8 @@
 #!/bin/bash
 # Issue Let's Encrypt TLS certificate using acme-tiny
-# Version 1.8 (build 20211002)
+# Version 1.9 (build 20230623)
 #
-# Copyright (c) 2016-2021  Daniel Rudolf <www.daniel-rudolf.de>
+# Copyright (c) 2016-2023  Daniel Rudolf <www.daniel-rudolf.de>
 #
 # This work is licensed under the terms of the MIT license.
 # For a copy, see LICENSE file or <https://opensource.org/licenses/MIT>.
@@ -14,8 +14,8 @@ APP_NAME="$(basename "$0")"
 APP_PATH="/var/local/acme"
 CONFIG_PATH="/etc/acme"
 
-VERSION="1.8"
-BUILD="20211002"
+VERSION="1.9"
+BUILD="20230623"
 
 set -eu -o pipefail
 export LC_ALL=C.UTF-8
@@ -59,7 +59,7 @@ while [ $# -gt 0 ]; do
         exit 0
     elif [ "$1" == "--version" ]; then
         echo "acme-issue $VERSION ($BUILD)"
-        echo "Copyright (c) 2016-2021  Daniel Rudolf"
+        echo "Copyright (c) 2016-2023  Daniel Rudolf"
         echo
         echo "This work is licensed under the terms of the MIT license."
         echo "For a copy, see LICENSE file or <https://opensource.org/licenses/MIT>."
