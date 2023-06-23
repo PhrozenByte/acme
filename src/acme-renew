@@ -18,16 +18,18 @@ BUILD="20211002"
 
 set -eu -o pipefail
 export LC_ALL=C.UTF-8
+shopt -s nullglob
 
 show_usage() {
     echo "Usage:"
-    echo "  $APP_NAME [--verbose|--quiet] [--retry...] --all"
+    echo "  $APP_NAME [--verbose|--quiet] [--retry...] [--clean] --all"
     echo "  $APP_NAME [--verbose|--quiet] [--retry...] DOMAIN_NAME..."
 }
 
 # read parameters
 DOMAINS=()
 ALL_DOMAINS="no"
+CLEANUP="no"
 RETRY=0
 VERBOSE="no"
 QUIET="no"
@@ -43,6 +45,7 @@ while [ $# -gt 0 ]; do
         echo
         echo "Options:"
         echo "  -a, --all      renew all certificates"
+        echo "  -c, --clean    remove dangling challenges on success; requires --all"
         echo "  -r, --retry    retry if renewal fails; can be passed multiple times"
         echo "  -v, --verbose  explain what is being done"
         echo "  -q, --quiet    suppress status information"
@@ -68,6 +71,8 @@ while [ $# -gt 0 ]; do
         exit 0
     elif [ "$1" == "--all" ] || [ "$1" == "-a" ]; then
         ALL_DOMAINS="yes"
+    elif [ "$1" == "--clean" ] || [ "$1" == "-c" ]; then
+        CLEANUP="yes"
     elif [ "$1" == "--retry" ] || [ "$1" == "-r" ]; then
         (( ++RETRY ))
     elif [ "$1" == "--verbose" ] || [ "$1" == "-v" ]; then
@@ -95,6 +100,10 @@ elif [ ${#DOMAINS[@]} -eq 0 ] && [ "$ALL_DOMAINS" == "no" ]; then
     echo "$APP_NAME: You must either pass a DOMAIN_NAME or --all" >&2
     show_usage
     exit 1
+elif [ "$CLEANUP" == "yes" ] && [ "$ALL_DOMAINS" == "no" ]; then
+    echo "$APP_NAME: Passing --clean also requires passing --all" >&2
+    show_usage
+    exit 1
 fi
 
 # apply parameters
@@ -110,13 +119,14 @@ if [ "$ALL_DOMAINS" == "yes" ]; then
 fi
 
 # run acme-issue
+if [ ${#DOMAINS[@]} -eq 0 ]; then
+    [ "$VERBOSE" == "no" ] \
+        || echo "No domains to renew, exiting..."
+    exit
+fi
+
 FAILED_DOMAINS=()
 if [ "$VERBOSE" == "yes" ]; then
-    if [ ${#DOMAINS[@]} -eq 0 ]; then
-        echo "No domains to renew, exiting..."
-        exit
-    fi
-
     for DOMAIN in "${DOMAINS[@]}"; do
         for (( RETRY_COUNT=0 ; RETRY_COUNT <= RETRY ; RETRY_COUNT++ )); do
             [ $RETRY_COUNT -eq 0 ] \
@@ -170,4 +180,18 @@ else
     if [ ${#FAILED_DOMAINS[@]} -gt 0 ]; then
         exit 1
     fi
+fi
+
+if [ "$CLEANUP" == "yes" ]; then
+    echo "Deleting dangling ACME challenges..."
+
+    for CHALLENGE_FILE in "$APP_PATH/challenges/"*; do
+        CHALLENGE="$(basename "$CHALLENGE_FILE")"
+        if [[ "$CHALLENGE" =~ ^[a-zA-Z0-9_-]{43}$ ]]; then
+            [ "$VERBOSE" == "no" ] \
+                || echo "Deleting challenge '$CHALLENGE'..."
+
+            rm -f "$CHALLENGE_FILE"
+        fi
+    done
 fi
