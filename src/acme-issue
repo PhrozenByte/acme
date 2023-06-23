@@ -17,7 +17,8 @@ CONFIG_PATH="/etc/acme"
 VERSION="1.8"
 BUILD="20211002"
 
-set -e
+set -eu -o pipefail
+export LC_ALL=C.UTF-8
 umask 022
 
 show_usage() {
@@ -105,8 +106,12 @@ if [ -f "$CONFIG_PATH/config.env" ]; then
     . "$CONFIG_PATH/config.env"
 fi
 
-# check account key
 ACME_ACCOUNT_KEY_FILE="${ACME_ACCOUNT_KEY_FILE:-$CONFIG_PATH/account.key}"
+ACME_ACCOUNT_CONTACT="${ACME_ACCOUNT_CONTACT:-}"
+ACME_DIRECTORY_URL="${ACME_DIRECTORY_URL:-}"
+TLS_KEY_GROUP="${TLS_KEY_GROUP:-}"
+
+# check account key
 if [ ! -e "$ACME_ACCOUNT_KEY_FILE" ]; then
     echo "$APP_NAME: Invalid account key '$ACME_ACCOUNT_KEY_FILE': No such file or directory" >&2
     exit 1

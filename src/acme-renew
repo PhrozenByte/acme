@@ -16,7 +16,8 @@ APP_PATH="/var/local/acme"
 VERSION="1.8"
 BUILD="20211002"
 
-set -e
+set -eu -o pipefail
+export LC_ALL=C.UTF-8
 
 show_usage() {
     echo "Usage:"
@@ -32,7 +33,7 @@ VERBOSE="no"
 QUIET="no"
 while [ $# -gt 0 ]; do
     if [[ "$1" =~ ^-[a-zA-Z0-9]{2,}$ ]]; then
-        read -a SHORT_OPTS <<< $(echo "${1:1}" | sed 's/./-& /g')
+        read -a SHORT_OPTS <<< $(sed 's/./-& /g' <<< "${1:1}")
         set -- "${SHORT_OPTS[@]}" "${@:2}"
         continue
     fi
