@@ -13,7 +13,9 @@ The scripts use a very simple directory structure below `/var/local/acme` to man
 
 In the course of signing a cert, acme-tiny will communicate with your CA using the [ACME protocol](https://en.wikipedia.org/wiki/Automated_Certificate_Management_Environment). It uses `HTTP-01` challenges to verify that you're actually authorized to issue certs for the requested domains. To do so it creates challenge files that your webserver must publish below `http://example.com/.well-known/acme-challenge/`. These files are created in `/var/local/acme/challenges`. Make sure that your webserver publishes all files within this directory at the mentioned URL.
 
-`acme-issue` will always check whether it actually succeeded and the files contain valid certs. If `acme-issue` fails, it simply leaves the files there and bails. If it succeeds, it will copy `cert.pem`, `chain.pem`, `fullchain.pem` and `key.pem` to a matching sub-folder below `/var/local/acme/live` for your services to use. Point your software to the files in this directory (e.g. `/var/local/acme/live/example.com/cert.pem`) and you're ready to go! When renewing certs (e.g. with cron), remember to also restart your services, so that they actually pick up the new cert.
+`acme-issue` will always check whether it actually succeeded and the files contain valid certs. If `acme-issue` fails, it simply leaves the files there and bails. If it succeeds, it will copy `cert.pem`, `chain.pem`, `fullchain.pem` and `key.pem` to a matching sub-folder below `/var/local/acme/live` for your services to use. Point your software to the files in this directory (e.g. `/var/local/acme/live/example.com/cert.pem`) and you're ready to go!
+
+When renewing certs using `acme-renew`, remember to also restart your services, so that they actually pick up the new cert. It's usually best to let services deal with restarting themselves, e.g. using an inotify-based certs watchdog. It's recommended to renew all certificates once a month (e.g. using a cronjob).
 
 Before signing certs you must create a ACME account private key. The scripts' config is stored below `/etc/acme`. Simply create a `account.key` there by executing `openssl genrsa 4096 > /etc/acme/account.key`. If you're there you can also take a look at the scripts' [`/etc/acme/config.env`](./conf/config.env). It is highly recommended to leave contact information with your CA (variable `ACME_ACCOUNT_CONTACT`) there. This is even mandatory for some CAs. acme-tiny can sign certs with any ACME-capable CA, it just defaults to Let's Encrypt. If you want to switch to another CA, simply change the `ACME_DIRECTORY_URL` variable in `config.env`. You can also change the associated group of private key files there (variable `TLS_KEY_GROUP`).
 
@@ -131,6 +133,9 @@ chmod +x /usr/local/bin/acme-{issue,renew}
 
 # OPTIONAL: install monthly `acme-renew` cronjob
 # check out the instructions in ./examples/cron/
+
+# OPTIONAL: install and setup certs watchdog script
+# check out the instructions and example script in ./examples/certs-watchdog/
 ```
 
 Upgrade
@@ -189,4 +194,7 @@ rm /etc/cron.monthly/letsencrypt
 
 # OPTIONAL: install monthly `acme-renew` cronjob
 # check out the instructions in ./examples/cron/
+
+# OPTIONAL: install and setup certs watchdog script
+# check out the instructions and example script in ./examples/certs-watchdog/
 ```

@@ -1,0 +1,93 @@
+#!/bin/bash
+# Issue Let's Encrypt TLS certificate using acme-tiny
+# Version 1.10 (build 20240802)
+#
+# Copyright (c) 2016-2023  Daniel Rudolf <www.daniel-rudolf.de>
+#
+# This work is licensed under the terms of the MIT license.
+# For a copy, see LICENSE file or <https://opensource.org/licenses/MIT>.
+#
+# SPDX-License-Identifier: MIT
+# License-Filename: LICENSE
+
+set -eu -o pipefail
+export LC_ALL=C.UTF-8
+
+APP_NAME="$(basename "$0")"
+
+VERSION="1.10"
+BUILD="20240802"
+
+show_usage() {
+    echo "Usage:"
+    echo "  $APP_NAME [--restart|--reload] SYSTEMD_UNIT ACME_CERT_DIRECTORY..."
+}
+
+# read parameters
+METHOD="restart"
+UNIT=""
+CERT_PATHS=()
+
+while [ $# -gt 0 ]; do
+    if [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
+        show_usage
+        exit 0
+    elif [ "$1" == "--version" ]; then
+        echo "acme-certs-watchdog $VERSION ($BUILD)"
+        echo "Copyright (c) 2016-2024  Daniel Rudolf"
+        echo
+        echo "This work is licensed under the terms of the MIT license."
+        echo "For a copy, see LICENSE file or <https://opensource.org/licenses/MIT>."
+        echo
+        echo "Written by Daniel Rudolf <https://www.daniel-rudolf.de/>"
+        exit 0
+    elif [ "$1" == "--restart" ]; then
+        METHOD="restart"
+    elif [ "$1" == "--reload" ]; then
+        METHOD="reload"
+    elif [ -z "$UNIT" ]; then
+        UNIT="$1"
+    else
+        CERT_PATHS+=( "$1" )
+    fi
+
+    shift
+done
+
+# check parameters and runtime requirements
+if [ ! -x "$(which systemctl)" ]; then
+    echo "$APP_NAME: 'systemctl' executable not found" >&2
+    exit 1
+elif [ ! -x "$(which inotifywait)" ]; then
+    echo "$APP_NAME: 'inotifywait' executable not found" >&2
+    exit 1
+elif [ -z "$UNIT" ]; then
+    echo "$APP_NAME: You must pass a Systemd unit name as first argument" >&2
+    echo >&2
+    show_usage >&2
+    exit 1
+elif [ ${#CERT_PATHS[@]} -eq 0 ]; then
+    echo "$APP_NAME: You must pass one or more paths of ACME cert directories as second+ argument" >&2
+    echo >&2
+    show_usage >&2
+    exit 1
+fi
+
+# check whether Systemd unit is active, otherwise there's nothing to do
+if ! systemctl is-active --quiet "$UNIT"; then
+    exit 0
+fi
+
+# start certs watchdog
+printf "Starting certs watchdog...\n"
+while read -r DIRECTORY EVENTS FILENAME; do
+    printf "Receiving inotify event '%s' for '%s%s'...\n" "$EVENTS" "$DIRECTORY" "$FILENAME"
+
+    # wait till 300 sec (5 min) after the last event, new events reset the timer
+    while read -t 300 -r DIRECTORY EVENTS FILENAME; do
+        printf "Receiving inotify event '%s' for '%s%s'...\n" "$EVENTS" "$DIRECTORY" "$FILENAME"
+    done
+
+    printf "Reloading '$UNIT' Systemd unit...\n"
+    systemctl "$METHOD" "$UNIT"
+done < <(inotifywait -e close_write,delete,move -m "${CERT_PATHS[@]}")
