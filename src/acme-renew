@@ -34,6 +34,7 @@ RETRY=0
 VERIFY="yes"
 VERBOSE="no"
 QUIET="no"
+
 while [ $# -gt 0 ]; do
     if [[ "$1" =~ ^-[a-zA-Z0-9]{2,}$ ]]; then
         read -a SHORT_OPTS <<< $(sed 's/./-& /g' <<< "${1:1}")
@@ -102,11 +103,13 @@ elif [ ! -x "$(which acme-issue)" ]; then
     exit 1
 elif [ ${#DOMAINS[@]} -eq 0 ] && [ "$ALL_DOMAINS" == "no" ]; then
     echo "$APP_NAME: You must either pass a DOMAIN_NAME or --all" >&2
-    show_usage
+    echo >&2
+    show_usage >&2
     exit 1
 elif [ "$CLEANUP" == "yes" ] && [ "$ALL_DOMAINS" == "no" ]; then
     echo "$APP_NAME: Passing --clean also requires passing --all" >&2
-    show_usage
+    echo >&2
+    show_usage >&2
     exit 1
 fi
 
@@ -114,6 +117,7 @@ fi
 if [ "$QUIET" == "yes" ]; then
     exec 1> /dev/null
     exec 2> /dev/null
+    VERBOSE="no"
 fi
 
 if [ "$ALL_DOMAINS" == "yes" ]; then
@@ -122,7 +126,7 @@ if [ "$ALL_DOMAINS" == "yes" ]; then
     done 3< <(find "$APP_PATH/live/" -mindepth 1 -maxdepth 1 -type d -print0)
 fi
 
-# run acme-issue
+# run acme-issue, if necessary
 if [ ${#DOMAINS[@]} -eq 0 ]; then
     [ "$VERBOSE" == "no" ] \
         || echo "No domains to renew, exiting..."
@@ -189,6 +193,7 @@ else
     fi
 fi
 
+# delete dangling ACME challenges
 if [ "$CLEANUP" == "yes" ]; then
     echo "Deleting dangling ACME challenges..."
 

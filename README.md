@@ -17,6 +17,8 @@ In the course of signing a cert, acme-tiny will communicate with your CA using t
 
 Before signing certs you must create a ACME account private key. The scripts' config is stored below `/etc/acme`. Simply create a `account.key` there by executing `openssl genrsa 4096 > /etc/acme/account.key`. If you're there you can also take a look at the scripts' [`/etc/acme/config.env`](./conf/config.env). It is highly recommended to leave contact information with your CA (variable `ACME_ACCOUNT_CONTACT`) there. This is even mandatory for some CAs. acme-tiny can sign certs with any ACME-capable CA, it just defaults to Let's Encrypt. If you want to switch to another CA, simply change the `ACME_DIRECTORY_URL` variable in `config.env`. You can also change the associated group of private key files there (variable `TLS_KEY_GROUP`).
 
+Made with :heart: by [Daniel Rudolf](https://www.daniel-rudolf.de). ACME Issue & Renew is free and open source software, released under the terms of the [MIT license](./LICENSE).
+
 Usage
 -----
 
@@ -139,7 +141,7 @@ chmod +x /etc/cron.monthly/acme
 Upgrade
 -------
 
-If you're currently running `letsencrypt-issue` v1.6 or older, you might ask yourself how to upgrade to `acme-issue` v1.8 or later. Simply check the steps below, but as with the install instructions, you **MUST** read, understand and edit these commands to fit your setup.
+If you're currently running `letsencrypt-issue` v1.6 or older, you might ask yourself how to upgrade to `acme-issue` v1.8 or later. Simply check the steps below, but as with the install instructions, you **MUST** read, understand and edit these commands to fit your setup. To upgrade later versions of `acme-issue` just replace the `acme-issue` and `acme-renew` script files with their respective new version.
 
 ```sh
 # create new base and config dir

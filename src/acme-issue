@@ -33,6 +33,7 @@ DOMAIN_ALIASES=()
 RENEW="no"
 FORCE="no"
 VERIFY="yes"
+
 while [ $# -gt 0 ]; do
     if [[ "$1" =~ ^-[a-zA-Z0-9]{2,}$ ]]; then
         read -a SHORT_OPTS <<< $(echo "${1:1}" | sed 's/./-& /g')
@@ -101,7 +102,8 @@ elif [ ! -x "$(which acme-tiny)" ]; then
     exit 1
 elif [ -z "$DOMAIN" ]; then
     echo "$APP_NAME: You must pass a DOMAIN_NAME" >&2
-    show_usage
+    echo >&2
+    show_usage >&2
     exit 1
 fi
 
@@ -207,7 +209,7 @@ acme-tiny \
     "${ACME_OPTIONS[@]}" 2>&3 \
     > "$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem"
 
-sleep 0.1
+sleep 0.5
 
 if ! openssl x509 -in "$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem" -noout > /dev/null 2>&1; then
     echo "$APP_NAME: Invalid certificate chain '$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem'" >&2
