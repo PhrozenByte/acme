@@ -129,13 +129,8 @@ cp ./src/acme-issue /usr/local/bin/acme-issue
 cp ./src/acme-renew /usr/local/bin/acme-renew
 chmod +x /usr/local/bin/acme-{issue,renew}
 
-# install monthly renewable cronjob
-cat > /etc/cron.monthly/acme <<EOF
-#!/bin/sh
-sudo -u acme -- acme-renew --all --retry --clean --verbose
-# add commands to restart/reload services using these certs
-EOF
-chmod +x /etc/cron.monthly/acme
+# OPTIONAL: install monthly `acme-renew` cronjob
+# check out the instructions in ./examples/cron/
 ```
 
 Upgrade
@@ -189,12 +184,9 @@ ln -s /usr/local/bin/acme-renew /usr/local/bin/letsencrypt-renew
 # delete old dir
 rm -rf /etc/ssl/acme
 
-# update renewable cronjob
+# remove old renewable cronjob
 rm /etc/cron.monthly/letsencrypt
-cat > /etc/cron.monthly/acme <<EOF
-#!/bin/sh
-sudo -u acme -- acme-renew --all --retry --clean --verbose
-# add commands to restart/reload services using these certs
-EOF
-chmod +x /etc/cron.monthly/acme
+
+# OPTIONAL: install monthly `acme-renew` cronjob
+# check out the instructions in ./examples/cron/
 ```
