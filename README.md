@@ -28,9 +28,10 @@ Usage:
   acme-issue --renew DOMAIN_NAME
 
 Options:
-  -r, --renew  renew an existing certificate
-  -f, --force  issue a new certificate even though there is another
-               certificate for this DOMAIN_NAME
+  -r, --renew      renew an existing certificate
+  -f, --force      issue a new certificate even though there is another
+                   certificate for this DOMAIN_NAME
+      --no-verify  don't verify the certificate after issuance
 
 Help options:
   -h, --help     display this help and exit
@@ -51,11 +52,12 @@ Usage:
   acme-renew [--verbose|--quiet] [--retry...] DOMAIN_NAME...
 
 Options:
-  -a, --all      renew all certificates
-  -c, --clean    remove dangling challenges on success; requires --all
-  -r, --retry    retry if renewal fails; can be passed multiple times
-  -v, --verbose  explain what is being done
-  -q, --quiet    suppress status information
+  -a, --all        renew all certificates
+  -c, --clean      remove dangling challenges on success; requires --all
+  -r, --retry      retry if renewal fails; can be passed multiple times
+      --no-verify  don't verify the certificate after renewal
+  -v, --verbose    explain what is being done
+  -q, --quiet      suppress status information
 
 Help options:
   -h, --help     display this help and exit

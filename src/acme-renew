@@ -31,6 +31,7 @@ DOMAINS=()
 ALL_DOMAINS="no"
 CLEANUP="no"
 RETRY=0
+VERIFY="yes"
 VERBOSE="no"
 QUIET="no"
 while [ $# -gt 0 ]; do
@@ -44,11 +45,12 @@ while [ $# -gt 0 ]; do
         show_usage
         echo
         echo "Options:"
-        echo "  -a, --all      renew all certificates"
-        echo "  -c, --clean    remove dangling challenges on success; requires --all"
-        echo "  -r, --retry    retry if renewal fails; can be passed multiple times"
-        echo "  -v, --verbose  explain what is being done"
-        echo "  -q, --quiet    suppress status information"
+        echo "  -a, --all        renew all certificates"
+        echo "  -c, --clean      remove dangling challenges on success; requires --all"
+        echo "  -r, --retry      retry if renewal fails; can be passed multiple times"
+        echo "      --no-verify  don't verify the certificate after renewal"
+        echo "  -v, --verbose    explain what is being done"
+        echo "  -q, --quiet      suppress status information"
         echo
         echo "Help options:"
         echo "  -h, --help     display this help and exit"
@@ -75,6 +77,8 @@ while [ $# -gt 0 ]; do
         CLEANUP="yes"
     elif [ "$1" == "--retry" ] || [ "$1" == "-r" ]; then
         (( ++RETRY ))
+    elif [ "$1" == "--no-verify" ]; then
+        VERIFY="no"
     elif [ "$1" == "--verbose" ] || [ "$1" == "-v" ]; then
         VERBOSE="yes"
     elif [ "$1" == "--quiet" ] || [ "$1" == "-q" ]; then
@@ -125,6 +129,9 @@ if [ ${#DOMAINS[@]} -eq 0 ]; then
     exit
 fi
 
+ISSUE_OPTIONS=()
+[ "$VERIFY" == "yes" ] || ISSUE_OPTIONS+=( --no-verify )
+
 FAILED_DOMAINS=()
 if [ "$VERBOSE" == "yes" ]; then
     for DOMAIN in "${DOMAINS[@]}"; do
@@ -136,7 +143,7 @@ if [ "$VERBOSE" == "yes" ]; then
             [ $RETRY_COUNT -eq 0 ] || sleep 60
 
             DOMAIN_STATUS=0
-            acme-issue --renew "$DOMAIN" \
+            acme-issue --renew "${ISSUE_OPTIONS[@]}" "$DOMAIN" \
                 || { DOMAIN_STATUS=$?; true; }
 
             if [ $DOMAIN_STATUS -eq 0 ]; then
@@ -164,7 +171,7 @@ else
             [ $RETRY_COUNT -eq 0 ] || sleep 60
 
             DOMAIN_STATUS=0
-            acme-issue --renew "$DOMAIN" > /dev/null 2>&1 \
+            acme-issue --renew "${ISSUE_OPTIONS[@]}" "$DOMAIN" > /dev/null 2>&1 \
                 || { DOMAIN_STATUS=$?; true; }
 
             if [ $DOMAIN_STATUS -eq 0 ]; then

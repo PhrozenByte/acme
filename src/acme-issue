@@ -32,6 +32,7 @@ DOMAIN=""
 DOMAIN_ALIASES=()
 RENEW="no"
 FORCE="no"
+VERIFY="yes"
 while [ $# -gt 0 ]; do
     if [[ "$1" =~ ^-[a-zA-Z0-9]{2,}$ ]]; then
         read -a SHORT_OPTS <<< $(echo "${1:1}" | sed 's/./-& /g')
@@ -43,9 +44,10 @@ while [ $# -gt 0 ]; do
         show_usage
         echo
         echo "Options:"
-        echo "  -r, --renew  renew an existing certificate"
-        echo "  -f, --force  issue a new certificate even though there is another"
-        echo "               certificate for this DOMAIN_NAME"
+        echo "  -r, --renew      renew an existing certificate"
+        echo "  -f, --force      issue a new certificate even though there is another"
+        echo "                   certificate for this DOMAIN_NAME"
+        echo "      --no-verify  don't verify the certificate after issuance"
         echo
         echo "Help options:"
         echo "  -h, --help     display this help and exit"
@@ -70,6 +72,8 @@ while [ $# -gt 0 ]; do
         RENEW="yes"
     elif [ "$1" == "--force" ] || [ "$1" == "-f" ]; then
         FORCE="yes"
+    elif [ "$1" == "--no-verify" ]; then
+        VERIFY="no"
     elif [ -z "$DOMAIN" ]; then
         DOMAIN="$1"
     else
@@ -229,6 +233,27 @@ if [ ! -e "$APP_PATH/archive/$DOMAIN/$DATE/chain.pem" ]; then
 elif ! openssl x509 -in "$APP_PATH/archive/$DOMAIN/$DATE/chain.pem" -noout > /dev/null 2>&1; then
     echo "$APP_NAME: Invalid intermediate certificate(s) '$APP_PATH/archive/$DOMAIN/$DATE/chain.pem'" >&2
     exit 1
+fi
+
+# verify cert chain
+if [ "$VERIFY" == "yes" ]; then
+    echo "Verifying certificate..."
+
+    VERIFY_OPTIONS=( -x509_strict -policy_check )
+    VERIFY_OPTIONS+=( -purpose sslserver -verify_name ssl_server )
+    VERIFY_OPTIONS+=( -verify_hostname "$DOMAIN" )
+    [ ! -s "$APP_PATH/archive/$DOMAIN/$DATE/chain.pem" ] \
+        || VERIFY_OPTIONS+=( -untrusted "$APP_PATH/archive/$DOMAIN/$DATE/chain.pem" )
+
+    VERIFY_STATUS="$(openssl verify "${VERIFY_OPTIONS[@]}" "$APP_PATH/archive/$DOMAIN/$DATE/cert.pem" 2>&1)"
+    VERIFY_EXIT=$?
+
+    if [ $VERIFY_EXIT -ne 0 ] || [ "$VERIFY_STATUS" != "$APP_PATH/archive/$DOMAIN/$DATE/cert.pem: OK" ]; then
+        echo "$APP_NAME: Verification of '$APP_PATH/archive/$DOMAIN/$DATE/cert.pem' failed" >&2
+        echo "$APP_NAME: \`openssl verify\` (exit code $VERIFY_EXIT) returned:" >&2
+        sed 's/^/    /g' <<< "$VERIFY_STATUS" >&2
+        exit 1
+    fi
 fi
 
 # copy files to live dir (deployment)
