@@ -1,0 +1,313 @@
+#!/bin/bash
+# Renew Let's Encrypt TLS certificates using acme-tiny
+# Version 1.9 (build 20240802)
+#
+# Copyright (c) 2016-2023  Daniel Rudolf <www.daniel-rudolf.de>
+#
+# This work is licensed under the terms of the MIT license.
+# For a copy, see LICENSE file or <https://opensource.org/licenses/MIT>.
+#
+# SPDX-License-Identifier: MIT
+# License-Filename: LICENSE
+
+APP_NAME="$(basename "$0")"
+APP_PATH="/var/local/acme"
+CONFIG_PATH="/etc/acme"
+
+VERSION="1.9"
+BUILD="20230623"
+
+set -eu -o pipefail
+export LC_ALL=C.UTF-8
+
+show_usage() {
+    echo "Usage:"
+    echo "  $APP_NAME [--verbose|--quiet] --all"
+    echo "  $APP_NAME [--verbose|--quiet] DOMAIN_NAME..."
+}
+
+# read parameters
+DOMAINS=()
+ALL_DOMAINS="no"
+RENEW="no"
+RENEW_RETRY=0
+VERBOSE="no"
+QUIET="no"
+
+while [ $# -gt 0 ]; do
+    if [[ "$1" =~ ^-[a-zA-Z0-9]{2,}$ ]]; then
+        read -a SHORT_OPTS <<< $(sed 's/./-& /g' <<< "${1:1}")
+        set -- "${SHORT_OPTS[@]}" "${@:2}"
+        continue
+    fi
+
+    if [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
+        show_usage
+        echo
+        echo "Options:"
+        echo "  -a, --all          check all certificates"
+        echo "  -r, --renew        renew certificates that are deemed invalid"
+        echo "      --retry-renew  retry if renewal fails; can be passed multiple times"
+        echo "  -v, --verbose      explain what is being done"
+        echo "  -q, --quiet        suppress status information"
+        echo
+        echo "Help options:"
+        echo "  -h, --help     display this help and exit"
+        echo "      --version  output version information and exit"
+        echo
+        echo "Environment:"
+        echo "  FP_REVOCATION_LIST     path to a list of revoked certificate fingerprints"
+        echo "  ACME_ACCOUNT_KEY_FILE  path to your ACME account private key"
+        echo "  ACME_ACCOUNT_CONTACT   contact details for your account"
+        echo "  ACME_DIRECTORY_URL     ACME directory URL of the CA to use"
+        echo "  TLS_KEY_GROUP          associated group for TLS key files"
+        exit 0
+    elif [ "$1" == "--version" ]; then
+        echo "acme-check $VERSION ($BUILD)"
+        echo "Copyright (c) 2016-2023  Daniel Rudolf"
+        echo
+        echo "This work is licensed under the terms of the MIT license."
+        echo "For a copy, see LICENSE file or <https://opensource.org/licenses/MIT>."
+        echo
+        echo "Written by Daniel Rudolf <https://www.daniel-rudolf.de/>"
+        exit 0
+    elif [ "$1" == "--all" ] || [ "$1" == "-a" ]; then
+        ALL_DOMAINS="yes"
+    elif [ "$1" == "--renew" ] || [ "$1" == "-r" ]; then
+        RENEW="yes"
+    elif [ "$1" == "--renew-retry" ]; then
+        (( ++RENEW_RETRY ))
+    elif [ "$1" == "--verbose" ] || [ "$1" == "-v" ]; then
+        VERBOSE="yes"
+    elif [ "$1" == "--quiet" ] || [ "$1" == "-q" ]; then
+        QUIET="yes"
+    else
+        DOMAINS+=( "$1" )
+    fi
+
+    shift
+done
+
+# check parameters and runtime requirements
+if [ "$(id -un)" != "acme" ]; then
+    echo "$APP_NAME: You must run this as user 'acme'" >&2
+    exit 1
+elif [ ! -d "$APP_PATH" ]; then
+    echo "$APP_NAME: Base directory '$APP_PATH' not found" >&2
+    exit 1
+elif [ ! -x "$(which acme-renew)" ]; then
+    echo "$APP_NAME: 'acme-renew' executable not found" >&2
+    exit 1
+elif [ ${#DOMAINS[@]} -eq 0 ] && [ "$ALL_DOMAINS" == "no" ]; then
+    echo "$APP_NAME: You must either pass a DOMAIN_NAME or --all" >&2
+    echo >&2
+    show_usage >&2
+    exit 1
+fi
+
+# include config file
+if [ -f "$CONFIG_PATH/config.env" ]; then
+    . "$CONFIG_PATH/config.env"
+fi
+
+FP_REVOCATION_LIST="${FP_REVOCATION_LIST:-}"
+
+# apply parameters
+if [ "$QUIET" == "yes" ]; then
+    exec 1> /dev/null
+    exec 2> /dev/null
+    VERBOSE="no"
+fi
+
+if [ "$ALL_DOMAINS" == "yes" ]; then
+    while IFS="" read -r -u 3 -d $'\0' DOMAIN_PATH; do
+        DOMAINS+=( "$(basename "$DOMAIN_PATH")" )
+    done 3< <(find "$APP_PATH/live/" -mindepth 1 -maxdepth 1 -type d -print0)
+fi
+
+# check and prepare internal revocation list
+if [ -n "$FP_REVOCATION_LIST" ]; then
+    if [ ! -e "$FP_REVOCATION_LIST" ]; then
+        echo "$APP_NAME: Invalid cert fingerprint revocation list '$FP_REVOCATION_LIST':" \
+            "No such file or directory" >&2
+        exit 1
+    fi
+
+    echo "Parsing cert fingerprint revocation list..."
+
+    FP_REVOCATION_LIST_SRC="$FP_REVOCATION_LIST"
+    FP_REVOCATION_LIST="$(mktemp)"
+
+    FP_LINENO=1
+    while IFS= read -r FP_LINE; do
+        if [[ ! "$FP_LINE" =~ ^(([0-9a-fA-F]{2}:){31}[0-9a-fA-F]{2})?([ \t]*(#.*)?)?$ ]]; then
+            echo "$APP_NAME: Invalid cert fingerprint revocation list '$FP_REVOCATION_LIST':" \
+                "Invalid content at line $FP_LINENO" >&2
+            exit 1
+        fi
+
+        [ -z "${BASH_REMATCH[1]}" ] || \
+            echo "${BASH_REMATCH[1]^^}" >> "$FP_REVOCATION_LIST"
+        ((FP_LINENO++))
+    done < "$FP_REVOCATION_LIST_SRC"
+fi
+
+# check domains
+if [ ${#DOMAINS[@]} -eq 0 ]; then
+    [ "$VERBOSE" == "no" ] \
+        || echo "No domains to check, exiting..."
+    exit
+fi
+
+INVALID_DOMAINS=()
+for DOMAIN in "${DOMAINS[@]}"; do
+    [ "$VERBOSE" == "yes" ] \
+        && echo "Checking '$DOMAIN'..." \
+        || echo -n "Checking '$DOMAIN'..."
+
+    ISSUES=()
+
+    # verify full cert chain
+    # also checks for cert expiration, purpose, hostname and RFC5280 compliance
+    (
+        [ "$VERBOSE" == "no" ] \
+            || echo -n "Verifying certificate validity..."
+
+        cd "$APP_PATH/live/$DOMAIN/"
+
+        VERIFY_OPTIONS=( -x509_strict -policy_check )
+        VERIFY_OPTIONS+=( -purpose sslserver -verify_name ssl_server )
+        VERIFY_OPTIONS+=( -verify_hostname "$DOMAIN" )
+        [ ! -s "chain.pem" ] || VERIFY_OPTIONS+=( -untrusted "chain.pem" )
+
+        VERIFY_STATUS="$(openssl verify "${VERIFY_OPTIONS[@]}" "cert.pem" 2>&1)"
+
+        if [ $? -eq 0 ]; then
+            if [ "$VERIFY_STATUS" == "cert.pem: OK" ]; then
+                [ "$VERBOSE" == "no" ] \
+                    || echo " valid"
+                exit 0
+            fi
+        fi
+
+        [ "$VERBOSE" == "no" ] \
+            || echo " invalid"
+        exit 1
+    ) || { ISSUES+=( "verify" ); true; }
+
+    # verify revocation status using OCSP
+    (
+        [ "$VERBOSE" == "no" ] \
+            || echo -n "Checking revocation status using OCSP..."
+
+        cd "$APP_PATH/live/$DOMAIN/"
+
+        OCSP_URL="$(openssl x509 -noout -ocsp_uri -in "cert.pem")"
+        OCSP_HOST="$(sed -ne 's#[^/]*//\([^@]*@\)\?\([^:/]*\)\(:[0-9]*\)\?\(/.*\)\?$#\2#p' <<< "$OCSP_URL")"
+        if [ -z "$OCSP_URL" ] || [ -z "$OCSP_HOST" ]; then
+            [ "$VERBOSE" == "no" ] \
+                || echo " failure"
+            exit 1
+        fi
+
+        OCSP_OPTIONS=( -nonce -crl_check_all )
+        OCSP_OPTIONS+=( -url "$OCSP_URL" -header "Host=$OCSP_HOST" )
+        [ ! -s "chain.pem" ] || OCSP_OPTIONS+=( -issuer "chain.pem" )
+
+        for (( RETRY_COUNT=0 ; RETRY_COUNT <= 3 ; RETRY_COUNT++ )); do
+            if [ $RETRY_COUNT -gt 0 ]; then
+                [ "$VERBOSE" == "no" ] \
+                    || echo -n " retry"
+                sleep 60
+            fi
+
+            OCSP_STATUS="$(openssl ocsp "${OCSP_OPTIONS[@]}" -cert "cert.pem" 2>&1)"
+
+            if [ $? -eq 0 ]; then
+                if grep -Fxq 'cert.pem: good' <<< "$OCSP_STATUS"; then
+                    if grep -Fxq 'Response verify OK' <<< "$OCSP_STATUS"; then
+                        [ "$VERBOSE" == "no" ] \
+                            || echo " valid"
+                        exit 0
+                    fi
+                fi
+            fi
+        done
+
+        [ "$VERBOSE" == "no" ] \
+            || echo " invalid"
+        exit 1
+    ) || { ISSUES+=( "ocsp" ); true; }
+
+    # verify revocation status using cert fingerprint list
+    if [ -n "$FP_REVOCATION_LIST" ]; then
+        (
+            [ "$VERBOSE" == "no" ] \
+                || echo -n "Checking revocation status using cert fingerprint list..."
+
+            cd "$APP_PATH/live/$DOMAIN/"
+
+            FINGERPRINT="$(openssl x509 -noout -fingerprint -sha256 -in "cert.pem" \
+                | sed -ne 's/^.*=\(\([0-9a-fA-F]\{2\}:\)\{31\}[0-9a-fA-F]\{2\}\)$/\1/p' \
+                | tr '[:lower:]' '[:upper:]')"
+
+            if [ $? -ne 0 ] || [ -z "$FINGERPRINT" ]; then
+                [ "$VERBOSE" == "no" ] \
+                    || echo " failure"
+                exit 1
+            fi
+
+            if ! grep -Fxq "$FINGERPRINT" "$FP_REVOCATION_LIST"; then
+                [ "$VERBOSE" == "no" ] \
+                    || echo " valid"
+                exit 0
+            fi
+
+            [ "$VERBOSE" == "no" ] \
+                || echo " invalid"
+            exit 1
+        ) || { ISSUES+=( "fingerprint_list" ); true; }
+    fi
+
+    # final result
+    if [ ${#ISSUES[@]} -ne 0 ]; then
+        [ "$VERBOSE" == "yes" ] \
+            && echo "Verification of '$DOMAIN' failed" \
+            || echo " failed (${ISSUES[*]})"
+
+        INVALID_DOMAINS+=( "$DOMAIN" )
+        continue
+    fi
+
+    [ "$VERBOSE" == "yes" ] \
+        && echo "Successfully verified '$DOMAIN'" \
+        || echo " success"
+done
+
+# cleanup
+if [ -n "$FP_REVOCATION_LIST" ]; then
+    rm -f "$FP_REVOCATION_LIST"
+fi
+
+# renew invalid domains
+if [ "$RENEW" == "yes" ]; then
+    echo "Renewing certificates of invalid domains..."
+
+    RENEW_ARGS=()
+    [ $RENEW_RETRY -eq 0 ] || RENEW_ARGS+=( $(printf -- '--retry %0.s' $(seq 1 $RENEW_RETRY)) )
+    [ "$VERBOSE" == "no" ] || RENEW_ARGS+=( --verbose )
+    [ "$QUIET" == "no" ] || RENEW_ARGS+=( --quiet )
+
+    acme-renew "${RENEW_ARGS[@]}" "${INVALID_DOMAINS[@]}"
+    exit $?
+fi
+
+# notify about invalid domains if no renewals were requested
+if [ ${#INVALID_DOMAINS[@]} -gt 0 ]; then
+    if [ "$VERBOSE" == "yes" ]; then
+        echo "$APP_NAME: Verification of one or more domains failed" >&2
+        printf '    - %s\n' "${INVALID_DOMAINS[@]}" >&2
+    fi
+
+    exit 1
+fi
