@@ -2,7 +2,7 @@
 # Issue Let's Encrypt TLS certificate using acme-tiny
 # Version 1.9 (build 20230623)
 #
-# Copyright (c) 2016-2023  Daniel Rudolf <www.daniel-rudolf.de>
+# Copyright (c) 2016-2024  Daniel Rudolf <www.daniel-rudolf.de>
 #
 # This work is licensed under the terms of the MIT license.
 # For a copy, see LICENSE file or <https://opensource.org/licenses/MIT>.
@@ -62,7 +62,7 @@ while [ $# -gt 0 ]; do
         exit 0
     elif [ "$1" == "--version" ]; then
         echo "acme-issue $VERSION ($BUILD)"
-        echo "Copyright (c) 2016-2023  Daniel Rudolf"
+        echo "Copyright (c) 2016-2024  Daniel Rudolf"
         echo
         echo "This work is licensed under the terms of the MIT license."
         echo "For a copy, see LICENSE file or <https://opensource.org/licenses/MIT>."
