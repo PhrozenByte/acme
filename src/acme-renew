@@ -156,8 +156,12 @@ if [ "$VERBOSE" == "yes" ]; then
             fi
 
             echo "Renewal of '$DOMAIN' failed"
-            FAILED_DOMAINS+=( "$DOMAIN" )
         done
+
+        if [ $DOMAIN_STATUS -ne 0 ]; then
+            [ $RETRY -eq 0 ] || echo "Giving up renewal of '$DOMAIN'"
+            FAILED_DOMAINS+=( "$DOMAIN" )
+        fi
     done
 
     if [ ${#FAILED_DOMAINS[@]} -gt 0 ]; then
@@ -184,8 +188,11 @@ else
             fi
 
             echo " failed"
-            FAILED_DOMAINS+=( "$DOMAIN" )
         done
+
+        if [ $DOMAIN_STATUS -ne 0 ]; then
+            FAILED_DOMAINS+=( "$DOMAIN" )
+        fi
     done
 
     if [ ${#FAILED_DOMAINS[@]} -gt 0 ]; then
