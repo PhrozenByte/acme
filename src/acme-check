@@ -75,7 +75,7 @@ while [ $# -gt 0 ]; do
         ALL_DOMAINS="yes"
     elif [ "$1" == "--renew" ] || [ "$1" == "-r" ]; then
         RENEW="yes"
-    elif [ "$1" == "--renew-retry" ]; then
+    elif [ "$1" == "--retry-renew" ]; then
         (( ++RENEW_RETRY ))
     elif [ "$1" == "--verbose" ] || [ "$1" == "-v" ]; then
         VERBOSE="yes"
