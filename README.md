@@ -17,7 +17,7 @@ In the course of signing a cert, acme-tiny will communicate with your CA using t
 
 When renewing certs using `acme-renew`, remember to also restart your services, so that they actually pick up the new cert. It's usually best to let services deal with restarting themselves, e.g. using an inotify-based certs watchdog. It's recommended to renew all certificates once a month (e.g. using a cronjob).
 
-Additionally you can use `acme-check` to check validity of managed certificates (e.g. whether a certificate was revoked). If a certificate is deemed invalid by `acme-check`, you should renew it (`acme-check` allows you to do that automatically).
+Additionally you can use `acme-check` to check validity of managed certificates (e.g. whether a certificate was revoked). If a certificate is deemed invalid by `acme-check`, you should renew it (`acme-check` allows you to do that automatically). You should check certificate validity regularly (e.g. daily using a cronjob).
 
 Before signing certs you must create a ACME account private key. The scripts' config is stored below `/etc/acme`. Simply create a `account.key` there by executing `openssl genrsa 4096 > /etc/acme/account.key`. If you're there you can also take a look at the scripts' [`/etc/acme/config.env`](./conf/config.env). It is highly recommended to leave contact information with your CA (variable `ACME_ACCOUNT_CONTACT`) there. This is even mandatory for some CAs. acme-tiny can sign certs with any ACME-capable CA, it just defaults to Let's Encrypt. If you want to switch to another CA, simply change the `ACME_DIRECTORY_URL` variable in `config.env`. You can also change the associated group of private key files there (variable `TLS_KEY_GROUP`).
 
@@ -160,7 +160,7 @@ cp ./src/acme-renew /usr/local/bin/acme-renew
 cp ./src/acme-check /usr/local/bin/acme-check
 chmod +x /usr/local/bin/acme-{issue,renew,check}
 
-# OPTIONAL: install monthly `acme-renew` cronjob
+# OPTIONAL: install daily `acme-check` and monthly `acme-renew` cronjobs
 # check out the instructions in ./examples/cron/
 
 # OPTIONAL: install and setup certs watchdog script
@@ -222,7 +222,7 @@ rm -rf /etc/ssl/acme
 # remove old renewable cronjob
 rm /etc/cron.monthly/letsencrypt
 
-# OPTIONAL: install monthly `acme-renew` cronjob
+# OPTIONAL: install daily `acme-check` and monthly `acme-renew` cronjobs
 # check out the instructions in ./examples/cron/
 
 # OPTIONAL: install and setup certs watchdog script
