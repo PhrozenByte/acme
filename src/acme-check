@@ -289,21 +289,21 @@ if [ -n "$FP_REVOCATION_LIST" ]; then
     rm -f "$FP_REVOCATION_LIST"
 fi
 
-# renew invalid domains
-if [ "$RENEW" == "yes" ]; then
-    echo "Renewing certificates of invalid domains..."
-
-    RENEW_ARGS=()
-    [ $RENEW_RETRY -eq 0 ] || RENEW_ARGS+=( $(printf -- '--retry %0.s' $(seq 1 $RENEW_RETRY)) )
-    [ "$VERBOSE" == "no" ] || RENEW_ARGS+=( --verbose )
-    [ "$QUIET" == "no" ] || RENEW_ARGS+=( --quiet )
-
-    acme-renew "${RENEW_ARGS[@]}" "${INVALID_DOMAINS[@]}"
-    exit $?
-fi
-
-# notify about invalid domains if no renewals were requested
 if [ ${#INVALID_DOMAINS[@]} -gt 0 ]; then
+    # renew invalid domains
+    if [ "$RENEW" == "yes" ]; then
+        echo "Renewing certificates of invalid domains..."
+
+        RENEW_ARGS=()
+        [ $RENEW_RETRY -eq 0 ] || RENEW_ARGS+=( $(printf -- '--retry %0.s' $(seq 1 $RENEW_RETRY)) )
+        [ "$VERBOSE" == "no" ] || RENEW_ARGS+=( --verbose )
+        [ "$QUIET" == "no" ] || RENEW_ARGS+=( --quiet )
+
+        acme-renew "${RENEW_ARGS[@]}" "${INVALID_DOMAINS[@]}"
+        exit $?
+    fi
+
+    # notify about invalid domains if no renewals were requested
     if [ "$VERBOSE" == "yes" ]; then
         echo "$APP_NAME: Verification of one or more domains failed" >&2
         printf '    - %s\n' "${INVALID_DOMAINS[@]}" >&2
