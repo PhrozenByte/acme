@@ -108,7 +108,7 @@ Setup
 
 `acme-issue`, `acme-renew` and `acme-check` all require [OpenSSL](https://www.openssl.org/) and [acme-tiny](https://github.com/diafygi/acme-tiny), `acme-check` additionally requires [curl](https://curl.se/).
 
-The scripts were written to work with [GNU Bash](https://www.gnu.org/software/bash/) (any more or less recent version), but *SHOULD* work with other advanced shells, too. If you want to make `acme-issue`, `acme-renew` and `acme-check` compatible with your favorite shell, please go ahead and let me know, I very much appreciate it!
+The scripts were written to work with [GNU Bash](https://www.gnu.org/software/bash/) (any more or less recent version), but *SHOULD* work with other advanced shells, too. It was tested with both [GNU coreutils](https://www.gnu.org/software/coreutils/) and [BusyBox](https://busybox.net/). If you want to make `acme-issue`, `acme-renew` and `acme-check` compatible with your favorite shell and/or coreutils package, please go ahead and let me know, I very much appreciate it!
 
 Below you'll find all steps required to set up `acme-issue`, `acme-renew` and `acme-check`. However, you **MUST** read, understand and edit these commands to fit your setup. **DO NOT EXECUTE THEM AS-IS!**
 
@@ -171,7 +171,11 @@ chmod +x /usr/local/bin/acme-{issue,renew,check}
 Upgrade
 -------
 
-If you're currently running `letsencrypt-issue` v1.6 or older, you might ask yourself how to upgrade to `acme-issue` v1.8 or later. Simply check the steps below, but as with the install instructions, you **MUST** read, understand and edit these commands to fit your setup. To upgrade later versions of `acme-issue` just replace the `acme-issue`, `acme-renew` and `acme-check` script files with their respective new version.
+We don't guarantee API compatibility between versions, i.e. you must always check the full changeset before upgrading `acme-issue`, `acme-renew` and `acme-check`. Upgrading by itself is very simple most of the time, just replace the `acme-issue`, `acme-renew` and `acme-check` script files with their respective new version, but sometimes usage changes. In the past the following major breaking changes were made, but note that this list is incomplete:
+
+As of `acme-check` v1.10 the shorthand option `acme-check -r` was equivalent to `acme-check --renew`, but was changed to match `acme-check --retry` in v1.11 instead. At the same time the shorthand option `acme-issue -r` (previously matching `acme-issue --renew`) was dropped.
+
+With `acme-issue` v1.8 we completely overhauled the directory structure. So, if you're currently running `letsencrypt-issue` v1.6 (or earlier) and want to upgrade to `acme-issue` v1.8 (or later), you can apply the following upgrade steps. However, as with the install instructions, you **MUST** read, understand and edit these commands to fit your setup.
 
 ```sh
 # create new base and config dir
