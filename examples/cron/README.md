@@ -56,13 +56,13 @@ Certificate validation
 
 Sometimes things can go wrong and certificates get invalidated unscheduled. The most pressing issue are certificate revocations: For certain reasons certificates might be revoked at any time, e.g. due to compromised private keys, changing domain ownerships, or just an out of order replacement of old certificates. Furthermore, you're not the only one who might revoke your certificates: Certificate Authorities (CAs) can be required to revoke your certificates, too. For example, if a certificate was issued erroneous, CAs are required to revoke all affected certificates within 24 hours following the CA/Browser Forum (CABF) Baseline Requirements (BR).
 
-Thus, you must expect your certificates to be revoked at basically any time. Below you'll find some examples on how to be prepared. They all have in common that they call the `acme-check` script daily. It's purpose is to verify a certificate's validity by ensuring that the certificate and all its intermediate certificates are valid X.509 certificates, form a complete and trusted chain, have not expired yet, match their supposed type and common name (CN), and have not been revoked. Revocation status is checked using the [OCSP](https://en.wikipedia.org/wiki/Online_Certificate_Status_Protocol) endpoint declared within the certificate. Alternatively, one can add the unique SHA-256 fingerprints of revoked certificates to a file whose path is configured using the `FP_REVOCATION_LIST` setting in `config.env`, or the matching environment variable when running `acme-check` (see `config.env` for details about this file). The `acme-check` script should be invoked using the `--all` option to check all managed certificates. Since we're running a cronjob, it's best practice to automatically renew any certificate that is deemed invalid (option `--renew`), multiple times if necessary (option `--retry-renew`). Remember that you must run all scripts using the unprivileged `acme` user.
+Thus, you must expect your certificates to be revoked at basically any time. Below you'll find some examples on how to be prepared. They all have in common that they call the `acme-check` script daily. It's purpose is to verify a certificate's validity by ensuring that the certificate and all its intermediate certificates are valid X.509 certificates, form a complete and trusted chain, have not expired yet, match their supposed type and common name (CN), and have not been revoked. Revocation status is checked using the [OCSP](https://en.wikipedia.org/wiki/Online_Certificate_Status_Protocol) endpoint declared within the certificate. Alternatively, one can add the unique SHA-256 fingerprints of revoked certificates to a file whose path is configured using the `FP_REVOCATION_LIST` setting in `config.env`, or the matching environment variable when running `acme-check` (see `config.env` for details about this file). The `acme-check` script should be invoked using the `--all` option to check all managed certificates. Since we're running a cronjob, it's best practice to retry at least once if the OCSP and/or CRL validation fails (option `--retry`). Optionally you can even automatically renew any certificate that is deemed invalid (option `--renew`), multiple times if necessary (option `--retry-renew`). Note that runtime errors (like a failing OCSP and/or CRL validation due to network issues) never cause auto-renewals. Remember that you must run all scripts using the unprivileged `acme` user.
 
 1. Again, you might use the `/etc/cron.daily`, `/etc/cron.weekly`, and `/etc/cron.monthly` directories of your Linux distribution. In this case, add a daily check script like the following:
     ```sh
     cat > /etc/cron.daily/acme-check <<EOF
     #!/bin/sh
-    sudo -u acme -- acme-check --all --renew --retry-renew --verbose
+    sudo -u acme -- acme-check --all --retry --renew --retry-renew --verbose
     EOF
     
     chmod +x /etc/cron.daily/acme-check
@@ -71,7 +71,7 @@ Thus, you must expect your certificates to be revoked at basically any time. Bel
 2. Otherwise you can use `/etc/crontab` to add a daily cronjob for the `acme` user like the following:
     ```sh
     cat >> /etc/crontab <<EOF
-    53 3 * * * acme acme-check --all --renew --retry-renew --verbose
+    53 3 * * * acme acme-check --all --retry --renew --retry-renew --verbose
     EOF
     ```
 
@@ -89,7 +89,7 @@ Thus, you must expect your certificates to be revoked at basically any time. Bel
     cat >> /etc/systemd/system/acme-check.service <<EOF
     [Service]
     Type=oneshot
-    ExecStart=/usr/local/bin/acme-check --all --renew --retry-renew --verbose
+    ExecStart=/usr/local/bin/acme-check --all --retry --renew --retry-renew --verbose
     User=acme
     EOF
     

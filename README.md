@@ -85,7 +85,8 @@ Usage:
 
 Options:
   -a, --all          check all certificates
-  -r, --renew        renew certificates that are deemed invalid
+  -r, --retry        retry if checks fail; can be passed multiple times
+      --renew        renew certificates that are deemed invalid
       --retry-renew  retry if renewal fails; can be passed multiple times
   -v, --verbose      explain what is being done
   -q, --quiet        suppress status information
@@ -105,7 +106,7 @@ Environment:
 Setup
 -----
 
-`acme-issue`, `acme-renew` and `acme-check` all require [OpenSSL](https://www.openssl.org/) and [acme-tiny](https://github.com/diafygi/acme-tiny).
+`acme-issue`, `acme-renew` and `acme-check` all require [OpenSSL](https://www.openssl.org/) and [acme-tiny](https://github.com/diafygi/acme-tiny), `acme-check` additionally requires [curl](https://curl.se/).
 
 The scripts were written to work with [GNU Bash](https://www.gnu.org/software/bash/) (any more or less recent version), but *SHOULD* work with other advanced shells, too. If you want to make `acme-issue`, `acme-renew` and `acme-check` compatible with your favorite shell, please go ahead and let me know, I very much appreciate it!
 

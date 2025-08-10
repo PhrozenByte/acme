@@ -29,6 +29,7 @@ show_usage() {
 # read parameters
 DOMAINS=()
 ALL_DOMAINS="no"
+RETRY=0
 RENEW="no"
 RENEW_RETRY=0
 VERBOSE="no"
@@ -46,7 +47,8 @@ while [ $# -gt 0 ]; do
         echo
         echo "Options:"
         echo "  -a, --all          check all certificates"
-        echo "  -r, --renew        renew certificates that are deemed invalid"
+        echo "  -r, --retry        retry if checks fail; can be passed multiple times"
+        echo "      --renew        renew certificates that are deemed invalid"
         echo "      --retry-renew  retry if renewal fails; can be passed multiple times"
         echo "  -v, --verbose      explain what is being done"
         echo "  -q, --quiet        suppress status information"
@@ -73,7 +75,9 @@ while [ $# -gt 0 ]; do
         exit 0
     elif [ "$1" == "--all" ] || [ "$1" == "-a" ]; then
         ALL_DOMAINS="yes"
-    elif [ "$1" == "--renew" ] || [ "$1" == "-r" ]; then
+    elif [ "$1" == "--retry" ] || [ "$1" == "-r" ]; then
+        (( ++RETRY ))
+    elif [ "$1" == "--renew" ]; then
         RENEW="yes"
     elif [ "$1" == "--retry-renew" ]; then
         (( ++RENEW_RETRY ))
@@ -97,6 +101,12 @@ elif [ ! -d "$APP_PATH" ]; then
     exit 1
 elif [ ! -x "$(which acme-renew)" ]; then
     echo "$APP_NAME: 'acme-renew' executable not found" >&2
+    exit 1
+elif [ ! -x "$(which openssl)" ]; then
+    echo "$APP_NAME: 'openssl' executable not found" >&2
+    exit 1
+elif [ ! -x "$(which curl)" ]; then
+    echo "$APP_NAME: 'curl' executable not found" >&2
     exit 1
 elif [ ${#DOMAINS[@]} -eq 0 ] && [ "$ALL_DOMAINS" == "no" ]; then
     echo "$APP_NAME: You must either pass a DOMAIN_NAME or --all" >&2
@@ -124,6 +134,10 @@ if [ "$ALL_DOMAINS" == "yes" ]; then
         DOMAINS+=( "$(basename "$DOMAIN_PATH")" )
     done 3< <(find "$APP_PATH/live/" -mindepth 1 -maxdepth 1 -type d -print0)
 fi
+
+# create CRL cache directory
+echo "Preparing CRL cache..."
+CRL_CACHE_DIR="$(mktemp -d)"
 
 # check and prepare internal revocation list
 if [ -n "$FP_REVOCATION_LIST" ]; then
@@ -156,135 +170,163 @@ fi
 if [ ${#DOMAINS[@]} -eq 0 ]; then
     [ "$VERBOSE" == "no" ] \
         || echo "No domains to check, exiting..."
-    exit
+    exit 0
 fi
 
+EXIT_STATUS=0
 INVALID_DOMAINS=()
 for DOMAIN in "${DOMAINS[@]}"; do
-    [ "$VERBOSE" == "yes" ] \
-        && echo "Checking '$DOMAIN'..." \
-        || echo -n "Checking '$DOMAIN'..."
-
-    ISSUES=()
-
     # verify full cert chain
     # also checks for cert expiration, purpose, hostname and RFC5280 compliance
-    (
-        [ "$VERBOSE" == "no" ] \
-            || echo -n "Verifying certificate validity..."
-
+    check_verify() {
         cd "$APP_PATH/live/$DOMAIN/"
 
-        VERIFY_OPTIONS=( -x509_strict -policy_check )
+        local VERIFY_OPTIONS=( -x509_strict -policy_check )
         VERIFY_OPTIONS+=( -purpose sslserver -verify_name ssl_server )
         VERIFY_OPTIONS+=( -verify_hostname "$DOMAIN" )
         [ ! -s "chain.pem" ] || VERIFY_OPTIONS+=( -untrusted "chain.pem" )
 
-        VERIFY_STATUS="$(openssl verify "${VERIFY_OPTIONS[@]}" "cert.pem" 2>&1)"
-
-        if [ $? -eq 0 ]; then
-            if [ "$VERIFY_STATUS" == "cert.pem: OK" ]; then
-                [ "$VERBOSE" == "no" ] \
-                    || echo " valid"
-                exit 0
-            fi
-        fi
-
-        [ "$VERBOSE" == "no" ] \
-            || echo " invalid"
-        exit 1
-    ) || { ISSUES+=( "verify" ); true; }
+        local VERIFY_STATUS="$(openssl verify "${VERIFY_OPTIONS[@]}" "cert.pem" 2>&1)"
+        [ $? -eq 0 ] && [ "$VERIFY_STATUS" == "cert.pem: OK" ]
+    }
 
     # verify revocation status using OCSP
-    (
-        [ "$VERBOSE" == "no" ] \
-            || echo -n "Checking revocation status using OCSP..."
+    check_ocsp() {
+        cd "$APP_PATH/live/$DOMAIN/"
+
+        local OCSP_URL="$(openssl x509 -noout -ocsp_uri -in "cert.pem" 2> /dev/null)"
+        [ -n "$OCSP_URL" ] || return 69
+
+        local OCSP_HOST="$(sed -ne 's#^[^/]*//\([^@]*@\)\?\([^:/]*\)\(:[0-9]*\)\?\(/.*\)\?$#\2#p' <<< "$OCSP_URL")"
+        [ -n "$OCSP_HOST" ] || return 2
+
+        local OCSP_OPTIONS=( -nonce -url "$OCSP_URL" -header "Host=$OCSP_HOST" )
+        [ ! -s "chain.pem" ] || OCSP_OPTIONS+=( -issuer "chain.pem" )
+
+        local OCSP_STATUS="$(openssl ocsp "${OCSP_OPTIONS[@]}" -cert "cert.pem" 2>&1)"
+        local OCSP_EXIT_STATUS=$?
+
+        grep -Fxq 'Response verify OK' <<< "$OCSP_STATUS" || return 75
+        ! grep -Fxq 'cert.pem: revoked' <<< "$OCSP_STATUS" || return 1
+        [ $OCSP_EXIT_STATUS -eq 0 ] && grep -Fxq 'cert.pem: good' <<< "$OCSP_STATUS" || return 2
+    }
+
+    # verify revocation status using CRL
+    check_crl() {
+        cd "$APP_PATH/live/$DOMAIN/"
+
+        fetch_crl() {
+            local CERT_FILE="$1"
+            local FULLCHAIN_CRL_FILE="$2"
+
+            local CRL_URL="$(openssl x509 -noout -ext crlDistributionPoints -in "$CERT_FILE" 2> /dev/null \
+                | awk 'p && /^[^ \t]/{exit}; /^X509v3 CRL Distribution Points/{p=1} p' \
+                | awk '/Full Name/{getline; sub(/^[ \t]+URI:/, ""); sub(/[ \t]+$/, ""); print}')"
+            [ -n "$CRL_URL" ] || return 69
+            [[ "$CRL_URL" =~ ^[^/]+//([^@]+@)?([^:/]+)(:[0-9]+)?(/.*)?$ ]] || return 2
+
+            local CRL_FILE="$CRL_CACHE_DIR/$(md5sum - <<< "$CRL_URL" | cut -d' ' -f1).crl"
+            if [ ! -e "$CRL_FILE" ]; then
+                curl -sSf -L -o "$CRL_CACHE_DIR/fetch_tmp" "$CRL_URL" > /dev/null 2>&1 || return 75
+                openssl crl -in "$CRL_CACHE_DIR/fetch_tmp" -out "$CRL_FILE" -outform PEM > /dev/null 2>&1 || return 2
+            fi
+
+            [ -s "$CRL_FILE" ] || return 2
+            cat "$CRL_FILE" >> "$FULLCHAIN_CRL_FILE" || return 2
+        }
+
+        local CRL_FILE="$CRL_CACHE_DIR/$DOMAIN.crl"
+        fetch_crl "cert.pem" "$CRL_FILE" || return $?
+        fetch_crl "chain.pem" "$CRL_FILE" || return $?
+
+        local CRL_OPTIONS=( -crl_check -crl_check_all -extended_crl -CRLfile "$CRL_FILE" )
+        [ ! -s "chain.pem" ] || CRL_OPTIONS+=( -untrusted "chain.pem" )
+
+        local CRL_STATUS="$(openssl verify "${CRL_OPTIONS[@]}" "cert.pem" 2>&1)"
+        [ $? -eq 0 ] && grep -Fxq 'cert.pem: OK' <<< "$CRL_STATUS"
+    }
+
+    # verify revocation status using cert fingerprint list
+    check_fp_list() {
+        [ -n "$FP_REVOCATION_LIST" ] || return 69
 
         cd "$APP_PATH/live/$DOMAIN/"
 
-        OCSP_URL="$(openssl x509 -noout -ocsp_uri -in "cert.pem")"
-        OCSP_HOST="$(sed -ne 's#[^/]*//\([^@]*@\)\?\([^:/]*\)\(:[0-9]*\)\?\(/.*\)\?$#\2#p' <<< "$OCSP_URL")"
-        if [ -z "$OCSP_URL" ] || [ -z "$OCSP_HOST" ]; then
-            [ "$VERBOSE" == "no" ] \
-                || echo " failure"
-            exit 1
+        local FINGERPRINT="$(openssl x509 -noout -fingerprint -sha256 -in "cert.pem" 2> /dev/null \
+            | sed -ne 's/^.*=\(\([0-9a-fA-F]\{2\}:\)\{31\}[0-9a-fA-F]\{2\}\)$/\1/p' \
+            | tr '[:lower:]' '[:upper:]')"
+        [ $? -eq 0 ] && [ -n "$FINGERPRINT" ] || return 2
+
+        if grep -Fxq "$FINGERPRINT" "$FP_REVOCATION_LIST"; then
+            return 1
         fi
+    }
 
-        OCSP_OPTIONS=( -nonce -crl_check_all )
-        OCSP_OPTIONS+=( -url "$OCSP_URL" -header "Host=$OCSP_HOST" )
-        [ ! -s "chain.pem" ] || OCSP_OPTIONS+=( -issuer "chain.pem" )
+    # run checks
+    ISSUES=()
+    ERRORS=()
 
-        for (( RETRY_COUNT=0 ; RETRY_COUNT <= 3 ; RETRY_COUNT++ )); do
-            if [ $RETRY_COUNT -gt 0 ]; then
-                [ "$VERBOSE" == "no" ] \
-                    || echo -n " retry"
-                sleep 60
-            fi
+    run_check() {
+        [ "$VERBOSE" == "no" ] || echo -n "$2"
 
-            OCSP_STATUS="$(openssl ocsp "${OCSP_OPTIONS[@]}" -cert "cert.pem" 2>&1)"
+        local CHECK="check_$1" CHECK_STATUS RETRY_COUNT
+        for (( RETRY_COUNT=0 ; RETRY_COUNT <= RETRY ; RETRY_COUNT++ )); do
+            (( RETRY_COUNT == 0 )) || { [ "$VERBOSE" == "no" ] || echo -n " retry"; sleep 60; }
 
-            if [ $? -eq 0 ]; then
-                if grep -Fxq 'cert.pem: good' <<< "$OCSP_STATUS"; then
-                    if grep -Fxq 'Response verify OK' <<< "$OCSP_STATUS"; then
-                        [ "$VERBOSE" == "no" ] \
-                            || echo " valid"
-                        exit 0
-                    fi
-                fi
-            fi
+            CHECK_STATUS=0; ( $CHECK ) || { CHECK_STATUS=$?; true; }
+            case $CHECK_STATUS in
+                75) ;;
+                69) [ "$VERBOSE" == "no" ] || echo " skipped"; return ;;
+                0)  [ "$VERBOSE" == "no" ] || echo " valid"  ; return ;;
+                1)  [ "$VERBOSE" == "no" ] || echo " failed" ; ISSUES+=( "$1" ); return ;;
+                *)  break ;;
+            esac
         done
 
-        [ "$VERBOSE" == "no" ] \
-            || echo " invalid"
-        exit 1
-    ) || { ISSUES+=( "ocsp" ); true; }
-
-    # verify revocation status using cert fingerprint list
-    if [ -n "$FP_REVOCATION_LIST" ]; then
-        (
-            [ "$VERBOSE" == "no" ] \
-                || echo -n "Checking revocation status using cert fingerprint list..."
-
-            cd "$APP_PATH/live/$DOMAIN/"
-
-            FINGERPRINT="$(openssl x509 -noout -fingerprint -sha256 -in "cert.pem" \
-                | sed -ne 's/^.*=\(\([0-9a-fA-F]\{2\}:\)\{31\}[0-9a-fA-F]\{2\}\)$/\1/p' \
-                | tr '[:lower:]' '[:upper:]')"
-
-            if [ $? -ne 0 ] || [ -z "$FINGERPRINT" ]; then
-                [ "$VERBOSE" == "no" ] \
-                    || echo " failure"
-                exit 1
-            fi
-
-            if ! grep -Fxq "$FINGERPRINT" "$FP_REVOCATION_LIST"; then
-                [ "$VERBOSE" == "no" ] \
-                    || echo " valid"
-                exit 0
-            fi
-
-            [ "$VERBOSE" == "no" ] \
-                || echo " invalid"
-            exit 1
-        ) || { ISSUES+=( "fingerprint_list" ); true; }
-    fi
-
-    # final result
-    if [ ${#ISSUES[@]} -ne 0 ]; then
-        [ "$VERBOSE" == "yes" ] \
-            && echo "Verification of '$DOMAIN' failed" \
-            || echo " failed (${ISSUES[*]})"
-
-        INVALID_DOMAINS+=( "$DOMAIN" )
-        continue
-    fi
+        ERRORS+=( "$1" )
+        [ "$VERBOSE" == "no" ] || echo " errored"
+    }
 
     [ "$VERBOSE" == "yes" ] \
-        && echo "Successfully verified '$DOMAIN'" \
-        || echo " success"
+        && echo "Checking '$DOMAIN'..." \
+        || echo -n "Checking '$DOMAIN'..."
+
+    run_check 'verify' "Verifying certificate validity..."
+    run_check 'ocsp' "Checking revocation status using OCSP..."
+    run_check 'crl' "Checking revocation status using CRL..."
+    run_check 'fp_list' "Checking revocation status using cert fingerprint list..."
+
+    if [ ${#ISSUES[@]} -eq 0 ]; then
+        if [ ${#ERRORS[@]} -eq 0 ]; then
+            [ "$VERBOSE" == "yes" ] \
+                && echo "Successfully verified '$DOMAIN'" \
+                || echo " success"
+        else
+            EXIT_STATUS=1
+
+            [ "$VERBOSE" == "yes" ] \
+                && echo "Unable to verify '$DOMAIN'" \
+                || echo " errored (${ERRORS[*]})"
+        fi
+    else
+        EXIT_STATUS=1
+        INVALID_DOMAINS+=( "$DOMAIN" )
+
+        if [ "$VERBOSE" == "yes" ]; then
+            echo "Verification of '$DOMAIN' failed"
+        elif [ ${#ERRORS[@]} -eq 0 ]; then
+            echo " failed (${ISSUES[*]})"
+        else
+            echo " failed (${ISSUES[*]}) and errored (${ERRORS[*]})"
+        fi
+    fi
 done
 
 # cleanup
+echo "Cleaning up..."
+
+rm -rf "$CRL_CACHE_DIR"
+
 if [ -n "$FP_REVOCATION_LIST" ]; then
     rm -f "$FP_REVOCATION_LIST"
 fi
@@ -292,7 +334,7 @@ fi
 if [ ${#INVALID_DOMAINS[@]} -gt 0 ]; then
     # renew invalid domains
     if [ "$RENEW" == "yes" ]; then
-        echo "Renewing certificates of invalid domains..."
+        echo "Renewing certificates of failed domains..."
 
         RENEW_ARGS=()
         [ $RENEW_RETRY -eq 0 ] || RENEW_ARGS+=( $(printf -- '--retry %0.s' $(seq 1 $RENEW_RETRY)) )
@@ -308,6 +350,6 @@ if [ ${#INVALID_DOMAINS[@]} -gt 0 ]; then
         echo "$APP_NAME: Verification of one or more domains failed" >&2
         printf '    - %s\n' "${INVALID_DOMAINS[@]}" >&2
     fi
-
-    exit 1
 fi
+
+exit $EXIT_STATUS
