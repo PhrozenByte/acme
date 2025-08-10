@@ -34,7 +34,7 @@ Usage:
   acme-issue --renew DOMAIN_NAME
 
 Options:
-  -r, --renew      renew an existing certificate
+      --renew      renew an existing certificate
   -f, --force      issue a new certificate even though there is another
                    certificate for this DOMAIN_NAME
       --no-verify  don't verify the certificate after issuance

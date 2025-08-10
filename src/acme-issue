@@ -45,7 +45,7 @@ while [ $# -gt 0 ]; do
         show_usage
         echo
         echo "Options:"
-        echo "  -r, --renew      renew an existing certificate"
+        echo "      --renew      renew an existing certificate"
         echo "  -f, --force      issue a new certificate even though there is another"
         echo "                   certificate for this DOMAIN_NAME"
         echo "      --no-verify  don't verify the certificate after issuance"
@@ -69,7 +69,7 @@ while [ $# -gt 0 ]; do
         echo
         echo "Written by Daniel Rudolf <https://www.daniel-rudolf.de/>"
         exit 0
-    elif [ "$1" == "--renew" ] || [ "$1" == "-r" ]; then
+    elif [ "$1" == "--renew" ]; then
         RENEW="yes"
     elif [ "$1" == "--force" ] || [ "$1" == "-f" ]; then
         FORCE="yes"
