@@ -155,9 +155,6 @@ else
         | awk '/X509v3 Subject Alternative Name/ {getline; sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); print}')"
 fi
 
-# write to fd3 to indent output
-exec 3> >(sed 's/^/    /g')
-
 # create target directory
 echo "Preparing target directory..."
 
@@ -167,9 +164,14 @@ mkdir -p "$APP_PATH/archive/$DOMAIN/$DATE"
 # generate private key
 echo "Generating private key..."
 
+exec 3> >(sed 's/^/    /g')
+
 ( umask 027 && openssl genrsa -out "$APP_PATH/archive/$DOMAIN/$DATE/key.pem" 4096 2>&3 )
 chmod 640 "$APP_PATH/archive/$DOMAIN/$DATE/key.pem"
 [ -z "$TLS_KEY_GROUP" ] || chgrp "$TLS_KEY_GROUP" "$APP_PATH/archive/$DOMAIN/$DATE/key.pem"
+
+exec 3>&-
+wait
 
 if ! openssl rsa -in "$APP_PATH/archive/$DOMAIN/$DATE/key.pem" -check -noout > /dev/null 2>&1; then
     echo "$APP_NAME: Invalid private key '$APP_PATH/archive/$DOMAIN/$DATE/key.pem'" >&2
@@ -198,6 +200,8 @@ fi
 # issue certificate using acme-tiny
 echo "Issuing certificate..."
 
+exec 3> >(sed 's/^/    /g')
+
 ACME_OPTIONS=( --account-key "$ACME_ACCOUNT_KEY_FILE" )
 [ -z "$ACME_ACCOUNT_CONTACT" ] || ACME_OPTIONS+=( --contact "$ACME_ACCOUNT_CONTACT" )
 [ -z "$ACME_DIRECTORY_URL" ] || ACME_OPTIONS+=( --directory-url "$ACME_DIRECTORY_URL" )
@@ -209,7 +213,8 @@ acme-tiny \
     "${ACME_OPTIONS[@]}" 2>&3 \
     > "$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem"
 
-sleep 0.5
+exec 3>&-
+wait
 
 if ! openssl x509 -in "$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem" -noout > /dev/null 2>&1; then
     echo "$APP_NAME: Invalid certificate chain '$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem'" >&2
@@ -267,5 +272,4 @@ cp "$APP_PATH/archive/$DOMAIN/$DATE/key.pem" \
     "$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem" \
     "$APP_PATH/live/$DOMAIN/"
 
-exec 3>&-
 exit 0
