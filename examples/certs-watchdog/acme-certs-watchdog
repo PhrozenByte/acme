@@ -1,6 +1,6 @@
 #!/bin/bash
 # Issue Let's Encrypt TLS certificate using acme-tiny
-# Version 1.11 (build 20250810)
+# Version 1.12 (build 20250929)
 #
 # Copyright (c) 2016-2025  Daniel Rudolf <www.daniel-rudolf.de>
 #
@@ -15,8 +15,8 @@ export LC_ALL=C.UTF-8
 
 APP_NAME="$(basename "$0")"
 
-VERSION="1.11"
-BUILD="20250810"
+VERSION="1.12"
+BUILD="20250929"
 
 show_usage() {
     echo "Usage:"

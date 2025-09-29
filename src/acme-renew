@@ -1,6 +1,6 @@
 #!/bin/bash
 # Renew Let's Encrypt TLS certificates using acme-tiny
-# Version 1.11 (build 20250810)
+# Version 1.12 (build 20250929)
 #
 # Copyright (c) 2016-2025  Daniel Rudolf <www.daniel-rudolf.de>
 #
@@ -13,8 +13,8 @@
 APP_NAME="$(basename "$0")"
 APP_PATH="/var/local/acme"
 
-VERSION="1.11"
-BUILD="20250810"
+VERSION="1.12"
+BUILD="20250929"
 
 set -eu -o pipefail
 export LC_ALL=C.UTF-8
