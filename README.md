@@ -108,7 +108,7 @@ Setup
 
 `acme-issue`, `acme-renew` and `acme-check` all require [OpenSSL](https://www.openssl.org/) and [acme-tiny](https://github.com/diafygi/acme-tiny), `acme-check` additionally requires [curl](https://curl.se/).
 
-The scripts were written to work with [GNU Bash](https://www.gnu.org/software/bash/) (any more or less recent version), but *SHOULD* work with other advanced shells, too. It was tested with both [GNU coreutils](https://www.gnu.org/software/coreutils/) and [BusyBox](https://busybox.net/). If you want to make `acme-issue`, `acme-renew` and `acme-check` compatible with your favorite shell and/or coreutils package, please go ahead and let me know, I very much appreciate it!
+The scripts were written to work with [GNU Bash](https://www.gnu.org/software/bash/) (any more or less recent version), but *SHOULD* work with other advanced shells, too. It was tested with both [GNU coreutils](https://www.gnu.org/software/coreutils/) with [GNU `sed`](https://www.gnu.org/software/sed/), and [BusyBox](https://busybox.net/) with its `sed` implementation. If you want to make `acme-issue`, `acme-renew` and `acme-check` compatible with your favorite shell and/or coreutils package, please go ahead and let me know, I very much appreciate it!
 
 Below you'll find all steps required to set up `acme-issue`, `acme-renew` and `acme-check`. However, you **MUST** read, understand and edit these commands to fit your setup. **DO NOT EXECUTE THEM AS-IS!**
 
