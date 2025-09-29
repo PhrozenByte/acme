@@ -103,6 +103,8 @@ Environment:
   TLS_KEY_GROUP          associated group for TLS key files
 ```
 
+As you have noticed from the scripts' `--help` texts all config variables (i.e. `/etc/acme/config.env`) can be overwritten by environment variables of the same name. Environment variables take presedence over the config file.
+
 Setup
 -----
 
