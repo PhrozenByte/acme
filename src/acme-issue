@@ -113,6 +113,8 @@ ENV_ACME_ACCOUNT_CONTACT="${ACME_ACCOUNT_CONTACT:-}"
 ENV_ACME_DIRECTORY_URL="${ACME_DIRECTORY_URL:-}"
 ENV_TLS_KEY_GROUP="${TLS_KEY_GROUP:-}"
 
+declare -A FQDN_GROUPS=()
+
 if [ -f "$CONFIG_PATH/config.env" ]; then
     . "$CONFIG_PATH/config.env"
 fi
@@ -173,7 +175,6 @@ exec 3> >(sed 's/^/    /g')
 
 ( umask 027 && openssl genrsa -out "$APP_PATH/archive/$DOMAIN/$DATE/key.pem" 4096 2>&3 )
 chmod 640 "$APP_PATH/archive/$DOMAIN/$DATE/key.pem"
-[ -z "$TLS_KEY_GROUP" ] || chgrp "$TLS_KEY_GROUP" "$APP_PATH/archive/$DOMAIN/$DATE/key.pem"
 
 exec 3>&-
 wait
@@ -247,6 +248,50 @@ elif ! openssl x509 -in "$APP_PATH/archive/$DOMAIN/$DATE/chain.pem" -noout > /de
     exit 1
 fi
 
+# change group of all files (`$FQDN_GROUPS` config) or just the private key (`$TLS_KEY_GROUP` config)
+if [ -n "${FQDN_GROUPS[$DOMAIN]:-}" ]; then
+    echo "Change group ownership of all files to '${FQDN_GROUPS[$DOMAIN]}'..."
+
+    FQDN_GROUP_ESCAPED="$(sed -e 's/[]\/$*.^[]/\\&/g' <<< "${FQDN_GROUPS[$DOMAIN]}")"
+    if [ -z "$(sed -ne "s/^\($FQDN_GROUP_ESCAPED\):[^:]:\([0-9][0-9]*\):.*$/\2/p" /etc/group)" ]; then
+        echo "$APP_NAME: Invalid group configured for '$DOMAIN': ${FQDN_GROUPS[$DOMAIN]}" >&2
+        exit 1
+    fi
+
+    chgrp "${FQDN_GROUPS[$DOMAIN]}" \
+        "$APP_PATH/archive/$DOMAIN/$DATE/key.pem" \
+        "$APP_PATH/archive/$DOMAIN/$DATE/cert.pem" \
+        "$APP_PATH/archive/$DOMAIN/$DATE/chain.pem" \
+        "$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem" \
+        "$APP_PATH/archive/$DOMAIN/$DATE/csr.pem"
+
+    if [ "$(stat -c '%G' "$APP_PATH/archive/$DOMAIN/$DATE/key.pem")" != "${FQDN_GROUPS[$DOMAIN]}" ] \
+        || [ "$(stat -c '%G' "$APP_PATH/archive/$DOMAIN/$DATE/cert.pem")" != "${FQDN_GROUPS[$DOMAIN]}" ] \
+        || [ "$(stat -c '%G' "$APP_PATH/archive/$DOMAIN/$DATE/chain.pem")" != "${FQDN_GROUPS[$DOMAIN]}" ] \
+        || [ "$(stat -c '%G' "$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem")" != "${FQDN_GROUPS[$DOMAIN]}" ] \
+        || [ "$(stat -c '%G' "$APP_PATH/archive/$DOMAIN/$DATE/csr.pem")" != "${FQDN_GROUPS[$DOMAIN]}" ]
+    then
+        echo "$APP_NAME: Failed to change group ownership of files in '$APP_PATH/archive/$DOMAIN/$DATE/'" >&2
+        exit 1
+    fi
+elif [ -n "$TLS_KEY_GROUP" ]; then
+    echo "Change group ownership of private key to '$TLS_KEY_GROUP'..."
+
+    TLS_KEY_GROUP_ESCAPED="$(sed -e 's/[]\/$*.^[]/\\&/g' <<< "$TLS_KEY_GROUP")"
+    if [ -z "$(sed -ne "s/^\($TLS_KEY_GROUP_ESCAPED\):[^:]:\([0-9][0-9]*\):.*$/\2/p" /etc/group)" ]; then
+        echo "$APP_NAME: Invalid group configured for private keys: $TLS_KEY_GROUP" >&2
+        exit 1
+    fi
+
+    chgrp "$TLS_KEY_GROUP" \
+        "$APP_PATH/archive/$DOMAIN/$DATE/key.pem"
+
+    if [ "$(stat -c '%G' "$APP_PATH/archive/$DOMAIN/$DATE/key.pem")" != "$TLS_KEY_GROUP" ]; then
+        echo "$APP_NAME: Failed to change group ownership of files in '$APP_PATH/archive/$DOMAIN/$DATE/'" >&2
+        exit 1
+    fi
+fi
+
 # verify cert chain
 if [ "$VERIFY" == "yes" ]; then
     echo "Verifying certificate..."
@@ -271,7 +316,8 @@ fi
 # copy files to live dir (deployment)
 echo "Deploying certificate..."
 [ -d "$APP_PATH/live/$DOMAIN" ] || mkdir "$APP_PATH/live/$DOMAIN"
-cp "$APP_PATH/archive/$DOMAIN/$DATE/key.pem" \
+cp -p \
+    "$APP_PATH/archive/$DOMAIN/$DATE/key.pem" \
     "$APP_PATH/archive/$DOMAIN/$DATE/cert.pem" \
     "$APP_PATH/archive/$DOMAIN/$DATE/chain.pem" \
     "$APP_PATH/archive/$DOMAIN/$DATE/fullchain.pem" \

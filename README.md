@@ -19,7 +19,7 @@ When renewing certs using `acme-renew`, remember to also restart your services, 
 
 Additionally you can use `acme-check` to check validity of managed certificates (e.g. whether a certificate was revoked). If a certificate is deemed invalid by `acme-check`, you should renew it (`acme-check` allows you to do that automatically). You should check certificate validity regularly (e.g. daily using a cronjob).
 
-Before signing certs you must create a ACME account private key. The scripts' config is stored below `/etc/acme`. Simply create a `account.key` there by executing `openssl genrsa 4096 > /etc/acme/account.key`. If you're there you can also take a look at the scripts' [`/etc/acme/config.env`](./conf/config.env). It is highly recommended to leave contact information with your CA (variable `ACME_ACCOUNT_CONTACT`) there. This is even mandatory for some CAs. acme-tiny can sign certs with any ACME-capable CA, it just defaults to Let's Encrypt. If you want to switch to another CA, simply change the `ACME_DIRECTORY_URL` variable in `config.env`. You can also change the associated group of private key files there (variable `TLS_KEY_GROUP`).
+Before signing certs you must create a ACME account private key. The scripts' config is stored below `/etc/acme`. Simply create a `account.key` there by executing `openssl genrsa 4096 > /etc/acme/account.key`. If you're there you can also take a look at the scripts' [`/etc/acme/config.env`](./conf/config.env). It is highly recommended to leave contact information with your CA (variable `ACME_ACCOUNT_CONTACT`) there. This is even mandatory for some CAs. acme-tiny can sign certs with any ACME-capable CA, it just defaults to Let's Encrypt. If you want to switch to another CA, simply change the `ACME_DIRECTORY_URL` variable in `config.env`. You can also change the associated group of private key files there (variable `TLS_KEY_GROUP`). Alternatively, you can also change the associated group of all files on a per-domain basis (associative array `FQDN_GROUPS`; see [GNU Bash manual](https://www.gnu.org/software/bash/manual/html_node/Arrays.html)).
 
 Made with :heart: by [Daniel Rudolf](https://www.daniel-rudolf.de). ACME Issue & Renew is free and open source software, released under the terms of the [MIT license](./LICENSE).
 
@@ -103,7 +103,7 @@ Environment:
   TLS_KEY_GROUP          associated group for TLS key files
 ```
 
-As you have noticed from the scripts' `--help` texts all config variables (i.e. `/etc/acme/config.env`) can be overwritten by environment variables of the same name. Environment variables take presedence over the config file.
+As you have noticed from the scripts' `--help` texts all config variables (i.e. `/etc/acme/config.env`) can be overwritten by environment variables of the same name; the `FQDN_GROUPS` variable is the only exception, because it is a [Bash associative array](https://www.gnu.org/software/bash/manual/html_node/Arrays.html) that can't be passed as environment variable. Environment variables take presedence over the config file.
 
 Setup
 -----
