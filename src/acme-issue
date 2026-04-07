@@ -94,10 +94,10 @@ elif [ ! -d "$APP_PATH" ]; then
 elif [ ! -d "$CONFIG_PATH" ]; then
     echo "$APP_NAME: Config directory '$CONFIG_PATH' not found" >&2
     exit 1
-elif [ ! -x "$(which openssl)" ]; then
+elif [ ! -x "$(type -P openssl)" ]; then
     echo "$APP_NAME: 'openssl' executable not found" >&2
     exit 1
-elif [ ! -x "$(which acme-tiny)" ]; then
+elif [ ! -x "$(type -P acme-tiny)" ]; then
     echo "$APP_NAME: 'acme-tiny' executable not found" >&2
     exit 1
 elif [ -z "$DOMAIN" ]; then

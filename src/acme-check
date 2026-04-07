@@ -99,13 +99,13 @@ if [ "$(id -un)" != "acme" ]; then
 elif [ ! -d "$APP_PATH" ]; then
     echo "$APP_NAME: Base directory '$APP_PATH' not found" >&2
     exit 1
-elif [ ! -x "$(which acme-renew)" ]; then
+elif [ ! -x "$(type -P acme-renew)" ]; then
     echo "$APP_NAME: 'acme-renew' executable not found" >&2
     exit 1
-elif [ ! -x "$(which openssl)" ]; then
+elif [ ! -x "$(type -P openssl)" ]; then
     echo "$APP_NAME: 'openssl' executable not found" >&2
     exit 1
-elif [ ! -x "$(which curl)" ]; then
+elif [ ! -x "$(type -P curl)" ]; then
     echo "$APP_NAME: 'curl' executable not found" >&2
     exit 1
 elif [ ${#DOMAINS[@]} -eq 0 ] && [ "$ALL_DOMAINS" == "no" ]; then
@@ -259,9 +259,7 @@ for DOMAIN in "${DOMAINS[@]}"; do
             | tr '[:lower:]' '[:upper:]')"
         [ $? -eq 0 ] && [ -n "$FINGERPRINT" ] || return 2
 
-        if grep -Fxq "$FINGERPRINT" "$FP_REVOCATION_LIST"; then
-            return 1
-        fi
+        ! grep -Fxq "$FINGERPRINT" "$FP_REVOCATION_LIST"
     }
 
     # run checks

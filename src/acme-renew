@@ -98,7 +98,7 @@ if [ "$(id -un)" != "acme" ]; then
 elif [ ! -d "$APP_PATH" ]; then
     echo "$APP_NAME: Base directory '$APP_PATH' not found" >&2
     exit 1
-elif [ ! -x "$(which acme-issue)" ]; then
+elif [ ! -x "$(type -P acme-issue)" ]; then
     echo "$APP_NAME: 'acme-issue' executable not found" >&2
     exit 1
 elif [ ${#DOMAINS[@]} -eq 0 ] && [ "$ALL_DOMAINS" == "no" ]; then
