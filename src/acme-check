@@ -266,9 +266,8 @@ for DOMAIN in "${DOMAINS[@]}"; do
         }
 
         local CRL_FILE="$CRL_CACHE_DIR/$DOMAIN.crl"
-        fetch_cert_crl "cert.pem" "$CRL_FILE" || return $?
-
         local CRL_OPTIONS=( -crl_check -crl_check_all -extended_crl -CRLfile "$CRL_FILE" )
+        fetch_cert_crl "cert.pem" "$CRL_FILE" || return $?
 
         if [ -s "chain.pem" ]; then
             fetch_chain_crls "$CRL_FILE" || return $?
