@@ -19,6 +19,7 @@ BUILD="20260422"
 
 set -eu -o pipefail
 export LC_ALL=C.UTF-8
+shopt -s nullglob
 
 show_usage() {
     echo "Usage:"
@@ -291,7 +292,6 @@ for DOMAIN in "${DOMAINS[@]}"; do
 
             local CERT_FILE
             for CERT_FILE in "$CHAIN_CERT_DIR"/*.pem; do
-                [ -e "$CERT_FILE" ] || return 2
                 fetch_cert_crl "$CERT_FILE" "$FULLCHAIN_CRL_FILE" || return $?
             done
         }
