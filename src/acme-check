@@ -228,7 +228,7 @@ for DOMAIN in "${DOMAINS[@]}"; do
 
             local CRL_URL CRL_FILE CRL_STATUS=2
             while IFS= read -r CRL_URL; do
-                [[ "$CRL_URL" =~ ^[^/]+//([^@]+@)?([^:/]+)(:[0-9]+)?(/.*)?$ ]] || continue
+                [[ "$CRL_URL" =~ ^[^/]+//([^@]+@)?([^:/]+)(:[0-9]+)?(/.*)?$ ]] || return 2
 
                 CRL_FILE="$CRL_CACHE_DIR/$(md5sum - <<< "$CRL_URL" | cut -d' ' -f1).crl"
                 if [ ! -e "$CRL_FILE" ]; then
