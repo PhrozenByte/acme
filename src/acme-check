@@ -14,8 +14,8 @@ APP_NAME="$(basename "$0")"
 APP_PATH="/var/local/acme"
 CONFIG_PATH="/etc/acme"
 
-VERSION="1.13"
-BUILD="20260422"
+VERSION="1.13.1"
+BUILD="20261112"
 
 set -eu -o pipefail
 export LC_ALL=C.UTF-8
