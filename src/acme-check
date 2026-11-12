@@ -249,11 +249,14 @@ for DOMAIN in "${DOMAINS[@]}"; do
         fetch_chain_crls() {
             local FULLCHAIN_CRL_FILE="$1"
             local CHAIN_CERT_DIR
-            CHAIN_CERT_DIR="$(mktemp -d "$CRL_CACHE_DIR/chain.XXXXXX")" || return 2
+            CHAIN_CERT_DIR="$(mkdir "$CRL_CACHE_DIR/$DOMAIN")" || return 2
 
-            awk -v out_dir="$CHAIN_CERT_DIR" \
-                '/^-----BEGIN CERTIFICATE-----$/{out=out_dir "/" ++cert ".pem"} out{print > out} /^-----END CERTIFICATE-----$/{close(out); out=""} END{exit cert && !out ? 0 : 1}' \
-                "chain.pem" || return 2
+            awk -v out_dir="$CHAIN_CERT_DIR" '
+                /^-----BEGIN CERTIFICATE-----$/{out=out_dir "/chain-" ++cert ".pem"}
+                out{print > out}
+                /^-----END CERTIFICATE-----$/{close(out); out=""}
+                END{exit cert && !out ? 0 : 1}
+            ' "chain.pem" || return 2
 
             local CERT_FILE
             for CERT_FILE in "$CHAIN_CERT_DIR"/*.pem; do
