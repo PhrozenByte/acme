@@ -14,11 +14,12 @@ APP_NAME="$(basename "$0")"
 APP_PATH="/var/local/acme"
 CONFIG_PATH="/etc/acme"
 
-VERSION="1.13"
-BUILD="20260422"
+VERSION="1.13.1"
+BUILD="20261112"
 
 set -eu -o pipefail
 export LC_ALL=C.UTF-8
+shopt -s nullglob
 
 show_usage() {
     echo "Usage:"
@@ -217,32 +218,92 @@ for DOMAIN in "${DOMAINS[@]}"; do
     check_crl() {
         cd "$APP_PATH/live/$DOMAIN/"
 
-        fetch_crl() {
+        fetch_cert_crl() {
             local CERT_FILE="$1"
             local FULLCHAIN_CRL_FILE="$2"
 
-            local CRL_URL="$(openssl x509 -noout -ext crlDistributionPoints -in "$CERT_FILE" 2> /dev/null \
-                | awk 'p && /^[^ \t]/{exit}; /^X509v3 CRL Distribution Points/{p=1} p' \
-                | awk '/Full Name/{getline; sub(/^[ \t]+URI:/, ""); sub(/[ \t]+$/, ""); print}')"
-            [ -n "$CRL_URL" ] || return 69
-            [[ "$CRL_URL" =~ ^[^/]+//([^@]+@)?([^:/]+)(:[0-9]+)?(/.*)?$ ]] || return 2
+            local CRL_DISTRIBUTION_POINTS="$(openssl x509 -noout -ext crlDistributionPoints -in "$CERT_FILE" 2> /dev/null \
+                | awk 'p && /^[^ \t]/{exit}; /^X509v3 CRL Distribution Points/{p=1} p')"
+            [ -n "$CRL_DISTRIBUTION_POINTS" ] || return 69
 
-            local CRL_FILE="$CRL_CACHE_DIR/$(md5sum - <<< "$CRL_URL" | cut -d' ' -f1).crl"
-            if [ ! -e "$CRL_FILE" ]; then
-                curl -sSf -L -o "$CRL_CACHE_DIR/fetch_tmp" "$CRL_URL" > /dev/null 2>&1 || return 75
-                openssl crl -in "$CRL_CACHE_DIR/fetch_tmp" -out "$CRL_FILE" -outform PEM > /dev/null 2>&1 || return 2
-            fi
+            local CRL_RECORD CRL_URL CRL_FILE CRL_STATUS=2
+            local CRL_GROUP_INDENT CRL_RECORD_INDENT
+            local CRL_GROUP_STARTED=false CRL_GROUP_SUCCEEDED=false
+            local CRL_GROUP_ACTIVE=false
+            # Each Full Name group needs one CRL; its URLs are alternatives.
+            while IFS= read -r CRL_RECORD; do
+                if [[ "$CRL_RECORD" =~ ^([[:space:]]*)Full[[:space:]]Name: ]]; then
+                    if [ "$CRL_GROUP_STARTED" = true ] && [ "$CRL_GROUP_SUCCEEDED" != true ]; then
+                        return "$CRL_STATUS"
+                    fi
+                    CRL_GROUP_STARTED=true
+                    CRL_GROUP_SUCCEEDED=false
+                    CRL_GROUP_ACTIVE=true
+                    CRL_STATUS=2
+                    CRL_GROUP_INDENT=${#BASH_REMATCH[1]}
+                    continue
+                fi
 
-            [ -s "$CRL_FILE" ] || return 2
-            cat "$CRL_FILE" >> "$FULLCHAIN_CRL_FILE" || return 2
+                [ "$CRL_GROUP_ACTIVE" = true ] || continue
+                if [[ "$CRL_RECORD" =~ ^([[:space:]]*)[^[:space:]] ]]; then
+                    CRL_RECORD_INDENT=${#BASH_REMATCH[1]}
+                else
+                    CRL_RECORD_INDENT=0
+                fi
+                if (( CRL_RECORD_INDENT <= CRL_GROUP_INDENT )); then
+                    CRL_GROUP_ACTIVE=false
+                    continue
+                fi
+
+                [[ "$CRL_RECORD" =~ ^[[:space:]]*URI:([^[:space:]]+) ]] || continue
+                [ "$CRL_GROUP_SUCCEEDED" = true ] && continue
+
+                CRL_URL="${BASH_REMATCH[1]}"
+                [[ "$CRL_URL" =~ ^[^/]+//([^@]+@)?([^:/]+)(:[0-9]+)?(/.*)?$ ]] || continue
+
+                CRL_FILE="$CRL_CACHE_DIR/$(md5sum - <<< "$CRL_URL" | cut -d' ' -f1).crl"
+                if [ ! -e "$CRL_FILE" ]; then
+                    curl -sSf -L -o "$CRL_CACHE_DIR/fetch_tmp" "$CRL_URL" > /dev/null 2>&1 \
+                        || { CRL_STATUS=75; continue; }
+                    openssl crl -in "$CRL_CACHE_DIR/fetch_tmp" -out "$CRL_FILE" -outform PEM > /dev/null 2>&1 \
+                        || continue
+                fi
+
+                [ -s "$CRL_FILE" ] || continue
+                cat "$CRL_FILE" >> "$FULLCHAIN_CRL_FILE" || return 2
+                CRL_GROUP_SUCCEEDED=true
+            done <<< "$CRL_DISTRIBUTION_POINTS"
+
+            [ "$CRL_GROUP_STARTED" = true ] || return 69
+            [ "$CRL_GROUP_SUCCEEDED" = true ] || return "$CRL_STATUS"
+        }
+
+        fetch_chain_crls() {
+            local FULLCHAIN_CRL_FILE="$1"
+            local CHAIN_CERT_DIR="$CRL_CACHE_DIR/$DOMAIN"
+            mkdir "$CHAIN_CERT_DIR" || return 2
+
+            awk -v out_dir="$CHAIN_CERT_DIR" '
+                /^-----BEGIN CERTIFICATE-----$/{out=out_dir "/chain-" ++cert ".pem"}
+                out{print > out}
+                /^-----END CERTIFICATE-----$/{close(out); out=""}
+                END{exit cert && !out ? 0 : 1}
+            ' "chain.pem" || return 2
+
+            local CERT_FILE
+            for CERT_FILE in "$CHAIN_CERT_DIR"/*.pem; do
+                fetch_cert_crl "$CERT_FILE" "$FULLCHAIN_CRL_FILE" || return $?
+            done
         }
 
         local CRL_FILE="$CRL_CACHE_DIR/$DOMAIN.crl"
-        fetch_crl "cert.pem" "$CRL_FILE" || return $?
-        fetch_crl "chain.pem" "$CRL_FILE" || return $?
-
         local CRL_OPTIONS=( -crl_check -crl_check_all -extended_crl -CRLfile "$CRL_FILE" )
-        [ ! -s "chain.pem" ] || CRL_OPTIONS+=( -untrusted "chain.pem" )
+        fetch_cert_crl "cert.pem" "$CRL_FILE" || return $?
+
+        if [ -s "chain.pem" ]; then
+            fetch_chain_crls "$CRL_FILE" || return $?
+            CRL_OPTIONS+=( -untrusted "chain.pem" )
+        fi
 
         local CRL_STATUS="$(openssl verify "${CRL_OPTIONS[@]}" "cert.pem" 2>&1)"
         [ $? -eq 0 ] && grep -Fxq 'cert.pem: OK' <<< "$CRL_STATUS"
