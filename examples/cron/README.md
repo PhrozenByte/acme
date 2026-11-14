@@ -30,8 +30,8 @@ Thus, all certificates must be renewed after a maximum period of 90 days. Below 
     ```
 
 3. If you'd like to use a more modern alternative to cronjobs, a [Systemd timer](https://www.freedesktop.org/software/systemd/man/latest/systemd.timer.html) might be your solution. Create such Systemd timer with a matching Systemd service unit like the following:
-    ```sh
-    cat >> /etc/systemd/system/acme-renew.timer <<EOF
+    ```bash
+    cat > /etc/systemd/system/acme-renew.timer <<EOF
     [Timer]
     OnCalendar=monthly
     Persistent=true
@@ -40,7 +40,7 @@ Thus, all certificates must be renewed after a maximum period of 90 days. Below 
     WantedBy=timers.target
     EOF
     
-    cat >> /etc/systemd/system/acme-renew.service <<EOF
+    cat > /etc/systemd/system/acme-renew.service <<EOF
     [Service]
     Type=oneshot
     ExecStart=/usr/local/bin/acme-renew --all --retry --clean --verbose
@@ -77,7 +77,7 @@ Thus, you must expect your certificates to be revoked at basically any time. Bel
 
 3. If you'd like to use a Systemd timer instead, try the following:
     ```sh
-    cat >> /etc/systemd/system/acme-check.timer <<EOF
+    cat > /etc/systemd/system/acme-check.timer <<EOF
     [Timer]
     OnCalendar=daily
     Persistent=true
@@ -86,7 +86,7 @@ Thus, you must expect your certificates to be revoked at basically any time. Bel
     WantedBy=timers.target
     EOF
     
-    cat >> /etc/systemd/system/acme-check.service <<EOF
+    cat > /etc/systemd/system/acme-check.service <<EOF
     [Service]
     Type=oneshot
     ExecStart=/usr/local/bin/acme-check --all --retry --renew --retry-renew --verbose
